@@ -443,22 +443,73 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- 重複SKUのマージ関数 ---
+  // --- 文字列の正規化（全角半角・記号・スペース統一） ---
+  function normalizeText(str) {
+    if (!str) return "";
+    return String(str)
+      .toLowerCase()
+      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0))
+      .replace(/[\s・\-_/／]/g, "");
+  }
+
+  // --- 高精度・同一車体マージ関数（角度違い・別写真の重複を完全排除） ---
   function mergeDuplicateBikes(bikes) {
-    const map = new Map();
-    bikes.forEach(b => {
-      const key = `${(b.model_name || '').trim()}|${(b.model_code || '').trim()}|${b.price_tax_included}`;
-      if (map.has(key)) {
-        const existing = map.get(key);
-        existing.quantity = (parseInt(existing.quantity) || 1) + (parseInt(b.quantity) || 1);
-        if (b.timestamp && !existing.timestamp.includes(b.timestamp)) {
-          existing.timestamp += `, ${b.timestamp}`;
+    const list = [];
+    
+    bikes.forEach(newBike => {
+      const newNormName = normalizeText(newBike.model_name);
+      const newNormCode = normalizeText(newBike.model_code);
+      const newPrice = parseInt(newBike.price_tax_included) || 0;
+
+      // 既存アイテムから同一車体（アングル違いの同一POP）を探索
+      const existing = list.find(b => {
+        const bNormName = normalizeText(b.model_name);
+        const bNormCode = normalizeText(b.model_code);
+        const bPrice = parseInt(b.price_tax_included) || 0;
+
+        // 価格が異なる場合は別車体
+        if (bPrice !== newPrice) return false;
+
+        // 1. 型番が両方存在し一致する場合は100%同一車体
+        if (newNormCode && bNormCode && (newNormCode === bNormCode || newNormCode.includes(bNormCode) || bNormCode.includes(newNormCode))) {
+          return true;
+        }
+
+        // 2. 車種名の正規化文字列が完全一致、または一方が包含している場合（例:「ビビDX」と「パナソニック ビビDX 26インチ」）
+        if (bNormName && newNormName) {
+          if (bNormName === newNormName || bNormName.includes(newNormName) || newNormName.includes(bNormName)) {
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      if (existing) {
+        // 同一車体と判定された場合：
+        // 【重要】角度違い・複数枚写り込みによる台数の水増しを防止（最大値を採用）
+        const newQty = parseInt(newBike.quantity) || 1;
+        const existQty = parseInt(existing.quantity) || 1;
+        existing.quantity = Math.max(existQty, newQty);
+
+        // より正確で長い商品名や型番があれば補正
+        if ((!existing.model_code || existing.model_code.length < 3) && newBike.model_code) {
+          existing.model_code = newBike.model_code;
+        }
+        if (newBike.model_name && newBike.model_name.length > (existing.model_name || "").length) {
+          existing.model_name = newBike.model_name;
+        }
+
+        // 確認時間の記録（写真1、写真2など別アングルをすべて追記）
+        if (newBike.timestamp && !existing.timestamp.includes(newBike.timestamp)) {
+          existing.timestamp += `, ${newBike.timestamp}`;
         }
       } else {
-        map.set(key, Object.assign({}, b));
+        list.push(Object.assign({}, newBike));
       }
     });
-    return Array.from(map.values());
+
+    return list;
   }
 
   // --- Files API アップロード ---
@@ -588,11 +639,14 @@ document.addEventListener("DOMContentLoaded", () => {
     - master_price: マスター価格（マスターに存在する場合のみ数値、ない場合はnull）
     - price_diff: 差額（税込価格 − マスター価格。ない場合はnull）
     - is_master_match: マスターに存在したかどうかのブール値（true/false）
-    - quantity: 展示台数（POP記載の台数、または映っている台数）
+    - quantity: 展示台数（POP記載の台数、または売場に物理的に並んでいる台数）
     - price_tax_excluded: 税抜価格（円・数値）
     - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
     - timestamp: 時間（動画の場合は出現時間 01:23、写真の場合は「写真」）
-    `;
+
+    【重複排除の重要ルール（角度違い・位置違いの完全防止）】
+    ・角度や距離を変えて撮影した写真、あるいは隣の自転車を撮った際に奥や横に見切れて写り込んだ同一車体・同一POPは、必ず1件にまとめて二重計上しないでください。
+    ・同一車体が複数枚の写真に写っていても「展示台数」を水増しせず、売場に物理的に展示されている実台数を記録してください。
 
     const responseSchema = {
       type: "OBJECT",
