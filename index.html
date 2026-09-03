@@ -49,12 +49,16 @@
         <div class="text-indigo-600"><i data-lucide="key" class="w-5 h-5"></i></div>
         <div>
           <h2 class="text-sm font-semibold text-slate-900">Google Gemini APIキー設定</h2>
-          <p class="text-xs text-slate-500">config.js で設定済みです。変更したい場合のみ入力してください。</p>
+          <p class="text-xs text-slate-500">ブラウザ内に安全に保存されています。変更したい場合のみ入力してください。</p>
         </div>
       </div>
       <div class="flex items-center space-x-2 w-full sm:w-auto">
         <input type="password" id="input-api-key" placeholder="AIzaSy..." class="px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:w-64 font-mono">
-        <button id="btn-save-key" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">更新</button>
+        <button id="btn-save-key" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">保存</button>
+        <button id="btn-copy-share-url" title="この端末の設定を含めた共有リンクをコピー" class="px-3 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition flex items-center space-x-1 whitespace-nowrap">
+          <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+          <span>📱 端末共有リンク</span>
+        </button>
         <button id="btn-close-api-banner" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">✕</button>
       </div>
     </div>

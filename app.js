@@ -73,6 +73,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   inputSurveyDate.value = today;
 
+  // URLクエリパラメータからキーを取得（例: ?key=AQ.Ab8RN6...）
+  // どの端末（スマホ・別PC）でもリンクを開くだけで自動設定完了！
+  const urlParams = new URLSearchParams(window.location.search);
+  const paramKey = urlParams.get("key") || urlParams.get("api_key");
+  if (paramKey && paramKey.trim() !== "") {
+    localStorage.setItem("gemini_api_key", paramKey.trim());
+    try {
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.replaceState({ path: cleanUrl }, "", cleanUrl);
+    } catch (e) {}
+  }
+
   let activeApiKey = "";
   if (typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY.trim() !== "") {
     activeApiKey = CONFIG.GEMINI_API_KEY.trim();
@@ -114,6 +126,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     updateStartButtonState();
   });
+
+  const btnCopyShareUrl = document.getElementById("btn-copy-share-url");
+  if (btnCopyShareUrl) {
+    btnCopyShareUrl.addEventListener("click", () => {
+      const key = getEffectiveApiKey();
+      if (!key) {
+        alert("APIキーが設定されていません。キーを入力して「保存」してからコピーしてください。");
+        return;
+      }
+      const baseUrl = window.location.href.split("?")[0];
+      const shareUrl = `${baseUrl}?key=${encodeURIComponent(key)}`;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          alert("📱 スマホ・他端末用の連携リンクをクリップボードにコピーしました！\n\nこのURLをスマホや他PCで開くだけで、APIキーが自動登録され入力不要で即座に使えます。");
+        }).catch(() => {
+          prompt("以下のURLをコピーしてスマホ等の端末で開いてください：", shareUrl);
+        });
+      } else {
+        prompt("以下のURLをコピーしてスマホ等の端末で開いてください：", shareUrl);
+      }
+    });
+  }
 
   // 初期状態のボタンステータスを反映
   updateStartButtonState();
