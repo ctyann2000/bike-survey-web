@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="550" viewBox="0 0 800 550" style="background:#ffffff; font-family:'Hiragino Sans', 'Meiryo', sans-serif;">
+  <!-- 外枠 -->
+  <rect x="15" y="15" width="770" height="520" rx="16" fill="#ffffff" stroke="#1e293b" stroke-width="4"/>
+  
+  <!-- ヘッダー赤い帯 -->
+  <path d="M 15 31 C 15 22 22 15 31 15 L 769 15 C 778 15 785 22 785 31 L 785 90 L 15 90 Z" fill="#b91c1c"/>
+  <text x="40" y="60" font-size="24" font-weight="bold" fill="#ffffff">サイクルスポット 厳選おすすめ特売車！</text>
+  
+  <!-- メーカー＆車種名 -->
+  <text x="40" y="135" font-size="18" fill="#475569" font-weight="bold">メーカー: Panasonic (パナソニック)</text>
+  <text x="40" y="175" font-size="28" fill="#0f172a" font-weight="bold">ビビ・DX (ViVi DX) 26インチ 2024年モデル</text>
+  <text x="40" y="215" font-size="16" fill="#64748b" font-family="monospace">型番 / 品番: BE-FD631</text>
+  
+  <!-- 価格ハイライトボックス -->
+  <rect x="35" y="240" width="730" height="150" rx="12" fill="#fef9c3" stroke="#eab308" stroke-width="3"/>
+  <text x="60" y="275" font-size="18" font-weight="bold" fill="#b45309">期間限定 特別セール価格</text>
+  <text x="60" y="340" font-size="44" font-weight="900" fill="#dc2626">税込 119,800 円</text>
+  <text x="440" y="340" font-size="20" font-weight="bold" fill="#64748b">(税抜 108,909 円)</text>
+  
+  <!-- スペック・POP特記 -->
+  <text x="40" y="430" font-size="16" font-weight="bold" fill="#0f172a">■ 展示台数: 3 台</text>
+  <text x="40" y="465" font-size="16" fill="#334155">■ 主な仕様: 大容量 16.0Ah バッテリー / 内装3段変速 / 国産タフフレーム</text>
+  <text x="40" y="500" font-size="16" font-weight="bold" fill="#047857">■ 特記事項: 3年間盗難補償付き！店頭即納可能です</text>
+</svg>

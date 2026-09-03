@@ -1,6 +1,6 @@
 // ========================================================
 // 自転車競合店調査 AI - メインアプリケーションロジック
-// (複数動画一括受付 ＆ 2段階自律パイプライン ＆ 自動統合出力版)
+// (動画・写真ハイブリッド対応 ＆ サンプル即テスト ＆ 自動統合出力版)
 // ========================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -18,13 +18,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const inputStoreName = document.getElementById("input-store-name");
   const inputSurveyDate = document.getElementById("input-survey-date");
 
-  // 複数動画アップロード要素
+  // メディア（動画・写真）アップロード要素
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
   const selectedFilesContainer = document.getElementById("selected-files-container");
   const selectedFilesCount = document.getElementById("selected-files-count");
   const selectedFilesList = document.getElementById("selected-files-list");
   const btnClearAllVideos = document.getElementById("btn-clear-all-videos");
+  const btnLoadSample = document.getElementById("btn-load-sample");
   const btnStartAnalysis = document.getElementById("btn-start-analysis");
 
   // 店舗マスターExcelアップロード要素
@@ -59,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnExportCsv = document.getElementById("btn-export-csv");
 
   // --- 状態変数 ---
-  let selectedVideoFiles = []; // 複数動画ファイル配列
+  let selectedMediaFiles = []; // 動画または写真ファイル配列
   let masterDataRecords = null;
   let currentResults = [];
 
@@ -110,7 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ========================================================
-  // 1. 複数動画ファイルの選択 ＆ 管理
+  // 1. メディアファイル（動画・写真）の選択 ＆ 管理
   // ========================================================
   dropZone.addEventListener("click", () => fileInput.click());
   dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
@@ -119,30 +120,38 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      addVideoFiles(e.dataTransfer.files);
+      addMediaFiles(e.dataTransfer.files);
     }
   });
 
   fileInput.addEventListener("change", (e) => {
     if (e.target.files && e.target.files.length > 0) {
-      addVideoFiles(e.target.files);
+      addMediaFiles(e.target.files);
     }
   });
 
-  async function addVideoFiles(files) {
+  function isMediaFile(file) {
+    return file.type.startsWith("video/") || 
+           file.type.startsWith("image/") || 
+           file.name.match(/\.(mp4|mov|webm|avi|mkv|jpg|jpeg|png|webp|svg)$/i);
+  }
+
+  function isImageFile(file) {
+    return file.type.startsWith("image/") || file.name.match(/\.(jpg|jpeg|png|webp|svg)$/i);
+  }
+
+  async function addMediaFiles(files) {
     let addedCount = 0;
-    const MAX_PART_SIZE = 1500 * 1024 * 1024; // 1パートあたり最大1.5GB（Google上限2GBに対して完全安全圏）
+    const MAX_PART_SIZE = 1500 * 1024 * 1024;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (file.type.startsWith("video/") || file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i)) {
+      if (isMediaFile(file)) {
         
-        // 2GB超の場合：ブラウザ内で自動分割（パート分割）して登録
-        if (file.size > 2000 * 1024 * 1024) {
+        // 動画で2GB超の場合：ブラウザ内で自動分割
+        if (file.size > 2000 * 1024 * 1024 && !isImageFile(file)) {
           const sizeGb = (file.size / (1024 * 1024 * 1024)).toFixed(2);
           const numParts = Math.ceil(file.size / MAX_PART_SIZE);
-          
-          console.log(`[自動分割] ${file.name} (${sizeGb}GB) を ${numParts} パートに自動分割します...`);
           
           for (let p = 0; p < numParts; p++) {
             const startByte = p * MAX_PART_SIZE;
@@ -154,68 +163,91 @@ document.addEventListener("DOMContentLoaded", () => {
             partFile.isAutoSplit = true;
             partFile.partLabel = `分割 ${p + 1}/${numParts}`;
             
-            selectedVideoFiles.push(partFile);
+            selectedMediaFiles.push(partFile);
             addedCount++;
           }
 
-          alert(`⚡ 大容量動画を自動分割しました！\n\n「${file.name}」(${sizeGb} GB) はGoogleの上限（2GB）を超えているため、安全に解析できるよう自動的に【${numParts}つのパート】に分割して登録しました。\n\nスタッフ側の追加操作は不要です。そのまま「AI解析を開始する」を押してください！`);
+          alert(`⚡ 大容量動画を自動分割しました！\n\n「${file.name}」(${sizeGb} GB) はGoogle上限を超えているため、安全に解析できるよう【${numParts}つのパート】に自動分割して登録しました。そのまま解析可能です！`);
           continue;
         }
 
-        // 通常（2GB以下）の動画ファイル
-        if (!selectedVideoFiles.some(f => f.name === file.name && f.size === file.size)) {
-          selectedVideoFiles.push(file);
+        // 通常の動画または写真
+        if (!selectedMediaFiles.some(f => f.name === file.name && f.size === file.size)) {
+          selectedMediaFiles.push(file);
           addedCount++;
         }
       }
     }
+
     if (addedCount > 0) {
-      renderVideoFilesList();
+      renderMediaFilesList();
       updateStartButtonState();
     } else {
-      alert("有効な動画ファイル（MP4 / MOV / WEBM）を選択してください。");
+      alert("動画（MP4/MOV/WEBM）または 写真（JPG/PNG/WEBP）ファイルを選択してください。");
     }
   }
 
-  function renderVideoFilesList() {
-    if (selectedVideoFiles.length === 0) {
+  // --- サンプル写真のクイック読み込み ---
+  if (btnLoadSample) {
+    btnLoadSample.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        const response = await fetch("sample_bike_pop.svg");
+        const svgBlob = await response.blob();
+        const sampleFile = new File([svgBlob], "sample_bike_pop.svg", { type: "image/svg+xml" });
+        selectedMediaFiles = [sampleFile];
+        renderMediaFilesList();
+        updateStartButtonState();
+        alert("🧪 サンプル自転車POP写真（Panasonic ビビDX）をセットしました！\n\n画面下の「AI解析を開始する」ボタンをクリックしてテストをお試しください。");
+      } catch (err) {
+        alert("サンプル写真の読み込みに失敗しました: " + err.message);
+      }
+    });
+  }
+
+  function renderMediaFilesList() {
+    if (selectedMediaFiles.length === 0) {
       selectedFilesContainer.classList.add("hidden");
       return;
     }
 
     selectedFilesContainer.classList.remove("hidden");
-    const totalBytes = selectedVideoFiles.reduce((acc, f) => acc + f.size, 0);
+    const totalBytes = selectedMediaFiles.reduce((acc, f) => acc + f.size, 0);
     const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
-    selectedFilesCount.textContent = `選択された動画: ${selectedVideoFiles.length} 本 (合計 ${totalMb} MB)`;
+    selectedFilesCount.textContent = `選択されたファイル: ${selectedMediaFiles.length} 件 (合計 ${totalMb} MB)`;
 
     selectedFilesList.innerHTML = "";
-    selectedVideoFiles.forEach((file, idx) => {
+    selectedMediaFiles.forEach((file, idx) => {
       const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      const tagHtml = file.isAutoSplit
-        ? `<span class="px-1.5 py-0.5 bg-amber-100 text-amber-800 font-bold rounded text-[10px]">${escapeHtml(file.partLabel || "自動分割")}</span>`
-        : `<span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 font-bold rounded text-[10px]">動画${idx + 1}</span>`;
+      const isImg = isImageFile(file);
+      const iconName = isImg ? "image" : "file-video";
+      const iconColor = isImg ? "text-emerald-600" : "text-indigo-600";
+
+      let tagHtml = `<span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 font-bold rounded text-[10px]">${isImg ? "写真" : "動画"}${idx + 1}</span>`;
+      if (file.isAutoSplit) {
+        tagHtml = `<span class="px-1.5 py-0.5 bg-amber-100 text-amber-800 font-bold rounded text-[10px]">${escapeHtml(file.partLabel || "自動分割")}</span>`;
+      }
 
       const row = document.createElement("div");
       row.className = "flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700";
       row.innerHTML = `
         <div class="flex items-center space-x-2 truncate">
           ${tagHtml}
-          <i data-lucide="file-video" class="w-4 h-4 text-indigo-600 flex-shrink-0"></i>
+          <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} flex-shrink-0"></i>
           <span class="font-medium truncate max-w-[220px] sm:max-w-xs">${escapeHtml(file.name)}</span>
           <span class="text-slate-400 text-[11px]">(${sizeMb} MB)</span>
         </div>
-        <button data-index="${idx}" class="btn-remove-video text-slate-400 hover:text-rose-600 p-1 font-bold ml-2 transition">✕</button>
+        <button data-index="${idx}" class="btn-remove-media text-slate-400 hover:text-rose-600 p-1 font-bold ml-2 transition">✕</button>
       `;
       selectedFilesList.appendChild(row);
     });
 
-    // 個別削除イベント
-    selectedFilesList.querySelectorAll(".btn-remove-video").forEach(btn => {
+    selectedFilesList.querySelectorAll(".btn-remove-media").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const removeIdx = parseInt(btn.getAttribute("data-index"));
-        selectedVideoFiles.splice(removeIdx, 1);
-        renderVideoFilesList();
+        selectedMediaFiles.splice(removeIdx, 1);
+        renderMediaFilesList();
         updateStartButtonState();
       });
     });
@@ -225,9 +257,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   btnClearAllVideos.addEventListener("click", (e) => {
     e.stopPropagation();
-    selectedVideoFiles = [];
+    selectedMediaFiles = [];
     fileInput.value = "";
-    renderVideoFilesList();
+    renderMediaFilesList();
     updateStartButtonState();
   });
 
@@ -289,8 +321,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateStartButtonState() {
     const hasKey = !!getEffectiveApiKey();
-    const hasVideos = selectedVideoFiles.length > 0;
-    btnStartAnalysis.disabled = !(hasKey && hasVideos);
+    const hasFiles = selectedMediaFiles.length > 0;
+    btnStartAnalysis.disabled = !(hasKey && hasFiles);
   }
 
   function updateProgress(percent, title, desc, logMsg) {
@@ -306,90 +338,97 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ========================================================
-  // 3. 解析実行パイプライン（複数動画の順次解析 ＆ 自動マージ）
+  // 3. 解析実行パイプライン（動画・写真 両対応）
   // ========================================================
   btnStartAnalysis.addEventListener("click", async () => {
     const apiKey = getEffectiveApiKey();
     if (!apiKey) { alert("APIキーを入力してください。"); return; }
-    if (selectedVideoFiles.length === 0) { alert("動画ファイルを選択してください。"); return; }
+    if (selectedMediaFiles.length === 0) { alert("動画または写真ファイルを選択してください。"); return; }
 
     btnStartAnalysis.disabled = true;
     progressCard.classList.remove("hidden");
     resultCard.classList.add("hidden");
     progressLog.innerHTML = "";
 
-    const totalVideos = selectedVideoFiles.length;
-    updateProgress(5, "準備中...", `合計 ${totalVideos} 本の動画を順次解析します`, `複数動画パイプライン開始 (合計 ${totalVideos} 本)`);
+    const totalFiles = selectedMediaFiles.length;
+    updateProgress(5, "準備中...", `合計 ${totalFiles} 件のメディアを順次解析します`, `解析パイプライン開始 (合計 ${totalFiles} 件)`);
 
     let combinedBikes = [];
     const hasMaster = masterDataRecords && masterDataRecords.length > 0;
 
     try {
-      for (let i = 0; i < totalVideos; i++) {
-        const file = selectedVideoFiles[i];
-        const videoPrefix = totalVideos > 1 ? `[動画${i + 1}] ` : "";
-        const basePercent = Math.round((i / totalVideos) * 90);
-        const perVideoStep = Math.round(90 / totalVideos);
+      for (let i = 0; i < totalFiles; i++) {
+        const file = selectedMediaFiles[i];
+        const isImg = isImageFile(file);
+        const prefixLabel = totalFiles > 1 ? (isImg ? `[写真${i + 1}] ` : `[動画${i + 1}] `) : "";
+        const basePercent = Math.round((i / totalFiles) * 90);
+        const perFileStep = Math.round(90 / totalFiles);
 
         updateProgress(
-          basePercent + Math.round(perVideoStep * 0.1),
-          `動画 ${i + 1}/${totalVideos} をアップロード中...`,
+          basePercent + Math.round(perFileStep * 0.1),
+          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} をアップロード中...`,
           `ファイル名: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
-          `▶ 動画 ${i + 1}/${totalVideos} (${file.name}) の処理を開始`
+          `▶ ${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} (${file.name}) の処理を開始`
         );
 
         // 1. Files API アップロード
-        const fileData = await uploadToGeminiFilesApi(file, apiKey);
+        const mimeType = isImg ? (file.type || "image/jpeg") : (file.type || "video/mp4");
+        const fileData = await uploadToGeminiFilesApi(file, mimeType, apiKey);
         
-        updateProgress(
-          basePercent + Math.round(perVideoStep * 0.3),
-          `動画 ${i + 1}/${totalVideos} 待機中...`,
-          "Google側で動画インデックス作成中",
-          `アップロード完了 (URI: ${fileData.file.uri})`
-        );
-        await waitForFileActive(fileData.file.name, apiKey);
+        // 動画の場合はACTIVE待機
+        if (!isImg) {
+          updateProgress(
+            basePercent + Math.round(perFileStep * 0.3),
+            `動画 ${i + 1}/${totalFiles} 待機中...`,
+            "Google側で動画インデックス作成中",
+            `アップロード完了 (URI: ${fileData.file.uri})`
+          );
+          await waitForFileActive(fileData.file.name, apiKey);
+        }
 
-        // 2. Stage 1: Flash-Lite によるトリアージ（有効区間特定）
-        updateProgress(
-          basePercent + Math.round(perVideoStep * 0.5),
-          `動画 ${i + 1}/${totalVideos} Stage 1: 有効区間判別中...`,
-          "Flash-Lite (1日500回枠) で移動時間をカットし有効区間を特定",
-          `Liteトリアージ実行中...`
-        );
-        const segmentAnalysis = await analyzeValidSegmentsWithLite(fileData.file.uri, apiKey);
+        // 2. Stage 1: トリアージ（写真の場合はスキップし即Stage 2へ）
+        let segmentAnalysis = { valid_segments: [], summary: "写真全編" };
+        if (!isImg) {
+          updateProgress(
+            basePercent + Math.round(perFileStep * 0.5),
+            `動画 ${i + 1}/${totalFiles} Stage 1: 有効区間判別中...`,
+            "Flash-Lite で移動時間をカットし有効区間を特定",
+            `Liteトリアージ実行中...`
+          );
+          segmentAnalysis = await analyzeValidSegmentsWithLite(fileData.file.uri, apiKey);
+        }
 
         // 3. Stage 2: Flash 高精度モデルによる精密読取
         updateProgress(
-          basePercent + Math.round(perVideoStep * 0.8),
-          `動画 ${i + 1}/${totalVideos} Stage 2: 精密解析中...`,
-          "Gemini 3.8/3.7/3.6 Flash でPOP・差額を精密抽出中",
+          basePercent + Math.round(perFileStep * 0.8),
+          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} Stage 2: 精密解析中...`,
+          "Gemini 3.8/3.7/3.6 Flash でPOP文字・差額を精密抽出中",
           `Flash高精度モデル呼び出し中...`
         );
-        const surveyData = await executePrecisionOcrWithFallback(fileData.file.uri, segmentAnalysis, masterDataRecords, apiKey);
+        const surveyData = await executePrecisionOcrWithFallback(fileData.file.uri, mimeType, isImg, segmentAnalysis, masterDataRecords, apiKey);
 
-        const bikesThisVideo = surveyData.bikes || [];
-        // 確認時間に動画番号プレフィックスを付与
-        bikesThisVideo.forEach(b => {
-          b.timestamp = `${videoPrefix}${b.timestamp || "00:00"}`;
+        const bikesThisMedia = surveyData.bikes || [];
+        bikesThisMedia.forEach(b => {
+          b.timestamp = `${prefixLabel}${b.timestamp || (isImg ? "写真" : "00:00")}`;
         });
 
-        combinedBikes = combinedBikes.concat(bikesThisVideo);
+        combinedBikes = combinedBikes.concat(bikesThisMedia);
         updateProgress(
-          basePercent + perVideoStep,
-          `動画 ${i + 1}/${totalVideos} 完了`,
-          `この動画から ${bikesThisVideo.length} SKU を抽出（累計: ${combinedBikes.length} SKU）`,
-          `✓ 動画 ${i + 1}/${totalVideos} 抽出完了 (+${bikesThisVideo.length} SKU)`
+          basePercent + perFileStep,
+          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} 完了`,
+          `このファイルから ${bikesThisMedia.length} SKU を抽出（累計: ${combinedBikes.length} SKU）`,
+          `✓ ${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} 抽出完了 (+${bikesThisMedia.length} SKU)`
         );
       }
 
-      // 重複統合（同一車種名・型番・同一価格のレコードがあれば台数を合算）
-      updateProgress(95, "全動画のデータ統合中...", "複数動画間の重複排除と集計を実行中", "全動画データの統合・マージ中...");
+      // 重複統合
+      updateProgress(95, "全データの統合集計中...", "重複排除とデータマージを実行中", "全データ統合中...");
       const mergedBikes = mergeDuplicateBikes(combinedBikes);
 
       currentResults = mergedBikes;
       renderResults(currentResults, hasMaster);
 
-      updateProgress(100, "完了！", `全 ${totalVideos} 本の動画解析が完了しました`, `全工程完了！合計 ${currentResults.length} SKU を抽出`);
+      updateProgress(100, "完了！", `全 ${totalFiles} 件のメディア解析が完了しました`, `全工程完了！合計 ${currentResults.length} SKU を抽出`);
       setTimeout(() => {
         progressCard.classList.add("hidden");
         resultCard.classList.remove("hidden");
@@ -408,12 +447,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function mergeDuplicateBikes(bikes) {
     const map = new Map();
     bikes.forEach(b => {
-      // 一致キー: 車種名 + 型番 + 税込価格
       const key = `${(b.model_name || '').trim()}|${(b.model_code || '').trim()}|${b.price_tax_included}`;
       if (map.has(key)) {
         const existing = map.get(key);
         existing.quantity = (parseInt(existing.quantity) || 1) + (parseInt(b.quantity) || 1);
-        // 確認時間をカンマ区切りで追記（例: [動画1] 01:23, [動画2] 00:45）
         if (b.timestamp && !existing.timestamp.includes(b.timestamp)) {
           existing.timestamp += `, ${b.timestamp}`;
         }
@@ -425,7 +462,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Files API アップロード ---
-  async function uploadToGeminiFilesApi(file, apiKey) {
+  async function uploadToGeminiFilesApi(file, mimeType, apiKey) {
     const initUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
     const initResponse = await fetch(initUrl, {
       method: "POST",
@@ -433,7 +470,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
         "X-Goog-Upload-Header-Content-Length": file.size.toString(),
-        "X-Goog-Upload-Header-Content-Type": file.type || "video/mp4",
+        "X-Goog-Upload-Header-Content-Type": mimeType,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({ file: { display_name: file.name } })
@@ -459,7 +496,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!uploadResponse.ok) {
       const errText = await uploadResponse.text();
-      throw new Error(`動画データ送信エラー (${uploadResponse.status}): ${errText}`);
+      throw new Error(`ファイル送信エラー (${uploadResponse.status}): ${errText}`);
     }
 
     return await uploadResponse.json();
@@ -480,17 +517,10 @@ document.addEventListener("DOMContentLoaded", () => {
     throw new Error("動画処理の待機時間がタイムアウトしました。");
   }
 
-  // --- Stage 1: Flash-Lite によるトリアージ ---
+  // --- Stage 1: Flash-Lite トリアージ ---
   async function analyzeValidSegmentsWithLite(fileUri, apiKey) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
-    
-    const prompt = `
-    この動画は自転車売場の歩き撮り映像です。
-    動画全体を確認し、以下の2点を抽出してください：
-    1. 自転車や値札・POPが明確に映っている【有効な時間区間（タイムスタンプ）】のリスト（例: "00:15 - 00:45", "01:20 - 02:05"...）
-    2. 単なる移動、ブレ、床や天井のみが映っている無効な区間を省いたサマリー
-    `;
-
+    const prompt = "この動画から、自転車やPOPが明確に映っている有効な時間区間（例: 00:15 - 00:45）を特定してください。";
     const schema = {
       type: "OBJECT",
       properties: {
@@ -510,10 +540,7 @@ document.addEventListener("DOMContentLoaded", () => {
         })
       });
 
-      if (!response.ok) {
-        return { valid_segments: [], summary: "全編有効" };
-      }
-
+      if (!response.ok) return { valid_segments: [], summary: "全編有効" };
       const resJson = await response.json();
       return JSON.parse(resJson.candidates[0].content.parts[0].text);
     } catch (e) {
@@ -522,7 +549,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Stage 2: 高精度Flashモデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック) ---
-  async function executePrecisionOcrWithFallback(fileUri, segmentInfo, masterRecords, apiKey) {
+  async function executePrecisionOcrWithFallback(fileUri, mimeType, isImage, segmentInfo, masterRecords, apiKey) {
     const fallbackChain = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
 
     let masterContext = "";
@@ -532,22 +559,23 @@ document.addEventListener("DOMContentLoaded", () => {
       ${JSON.stringify(masterRecords.slice(0, 300))}
       
       【マスター照合ルール】
-      1. 動画内に映るPOPを、上記マスターと照合してください。
+      1. POPを上記マスターと照合してください。
       2. 一致商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
       3. マスター外商品: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出。
       `;
     }
 
-    const segmentsHint = (segmentInfo.valid_segments && segmentInfo.valid_segments.length > 0)
-      ? `【有効区間情報】Liteモデルにより以下の区間にPOPが集中していることが判明しています: ${segmentInfo.valid_segments.join(", ")}。これらの区間に特に注視して精密に文字認識してください。`
+    const segmentsHint = (!isImage && segmentInfo.valid_segments && segmentInfo.valid_segments.length > 0)
+      ? `【有効区間情報】Liteモデルにより以下の区間にPOPが集中していることが判明しています: ${segmentInfo.valid_segments.join(", ")}。`
       : "";
+
+    const mediaLabel = isImage ? "写真（静止画）" : "動画";
 
     const prompt = `
     あなたは自転車小売業の競合店舗調査の専門エキスパートです。
-    この動画は自転車売場の通路を歩いて撮影したものです。
+    この${mediaLabel}に映っているすべての自転車の【値札・プライスカードPOP】を読み取り、
+    全商品の詳細情報を漏れなく抽出してください。
     ${segmentsHint}
-    動画に映っているすべての自転車の【値札・プライスカードPOP】を時系列で読み取り、
-    重複を排除して全商品の詳細情報を漏れなく抽出してください。
     ${masterContext}
 
     【抽出項目】
@@ -560,14 +588,10 @@ document.addEventListener("DOMContentLoaded", () => {
     - master_price: マスター価格（マスターに存在する場合のみ数値、ない場合はnull）
     - price_diff: 差額（税込価格 − マスター価格。ない場合はnull）
     - is_master_match: マスターに存在したかどうかのブール値（true/false）
-    - quantity: 展示台数（同モデル・同価格の並び台数）
+    - quantity: 展示台数（POP記載の台数、または映っている台数）
     - price_tax_excluded: 税抜価格（円・数値）
-    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、店頭特価等）
-    - timestamp: 動画内で出現した時間（例: 01:23）
-
-    【ルール】
-    ・同一の自転車が複数秒にわたって連続して映っている場合は、重複して別レコードにせず1件にまとめてください。
-    ・価格はPOPに記載された数値を確実に拾ってください。
+    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
+    - timestamp: 時間（動画の場合は出現時間 01:23、写真の場合は「写真」）
     `;
 
     const responseSchema = {
@@ -605,14 +629,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     for (const model of fallbackChain) {
       try {
-        console.log(`モデル ${model} で精密解析を実行中...`);
+        console.log(`モデル ${model} で解析を実行中...`);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: "video/mp4", file_uri: fileUri } }] }],
+            contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: mimeType, file_uri: fileUri } }] }],
             generationConfig: { responseMimeType: "application/json", responseSchema: responseSchema }
           })
         });
@@ -627,11 +651,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const errText = await response.text();
-        console.warn(`モデル ${model} エラー (${response.status}): ${errText}`);
         lastError = new Error(`モデル ${model} エラー: ${errText}`);
-
       } catch (err) {
-        console.warn(`モデル ${model} 呼び出し例外: ${err.message}`);
         lastError = err;
       }
     }
@@ -703,7 +724,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <td class="px-3 py-2 text-right whitespace-nowrap">${diffHtml}</td>
         <td class="px-3 py-2 text-center font-bold text-indigo-600">${qty}</td>
         <td class="px-3 py-2 text-slate-500 text-[11px]">${escapeHtml(bike.spec_notes || "")}</td>
-        <td class="px-3 py-2 text-center font-mono text-xs text-indigo-700 bg-indigo-50/50 rounded font-semibold whitespace-nowrap">${escapeHtml(bike.timestamp || "00:00")}</td>
+        <td class="px-3 py-2 text-center font-mono text-xs text-indigo-700 bg-indigo-50/50 rounded font-semibold whitespace-nowrap">${escapeHtml(bike.timestamp || "確認済")}</td>
       `;
       tableBody.appendChild(tr);
     });
@@ -717,8 +738,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const storeName = inputStoreName.value.trim() || "競合店舗";
     const surveyDate = inputSurveyDate.value || today;
-    const videoCountLabel = selectedVideoFiles.length > 1 ? ` (動画計${selectedVideoFiles.length}本)` : "";
-    resultMetaInfo.textContent = `店舗名: ${storeName} | 調査日: ${surveyDate}${videoCountLabel} | 合計展示台数: ${totalQty}台`;
+    const mediaCountLabel = selectedMediaFiles.length > 1 ? ` (ファイル計${selectedMediaFiles.length}件)` : "";
+    resultMetaInfo.textContent = `店舗名: ${storeName} | 調査日: ${surveyDate}${mediaCountLabel} | 合計展示台数: ${totalQty}台`;
   }
 
   // ========================================================
@@ -757,7 +778,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ws["!cols"] = [
       { wch: 16 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 10 },
       { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 8 },  { wch: 15 },
-      { wch: 26 }, { wch: 20 } // 確認時間は動画番号が入るため少し幅広に設定
+      { wch: 26 }, { wch: 20 }
     ];
 
     const wb = XLSX.utils.book_new();
