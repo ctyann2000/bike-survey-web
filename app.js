@@ -129,20 +129,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  function addVideoFiles(files) {
+  async function addVideoFiles(files) {
     let addedCount = 0;
+    const MAX_PART_SIZE = 1500 * 1024 * 1024; // 1パートあたり最大1.5GB（Google上限2GBに対して完全安全圏）
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (file.type.startsWith("video/") || file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i)) {
-        // 2GB（2,000MB）上限チェック
-        const MAX_SIZE_BYTES = 2000 * 1024 * 1024; // 2,000 MB
-        if (file.size > MAX_SIZE_BYTES) {
+        
+        // 2GB超の場合：ブラウザ内で自動分割（パート分割）して登録
+        if (file.size > 2000 * 1024 * 1024) {
           const sizeGb = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-          alert(`⚠️ 動画の容量オーバー警告:\n\n「${file.name}」の容量は ${sizeGb} GB あります。\n\nGoogle Gemini APIの上限（1本あたり最大2.0GB）を超えているため、このファイルは追加できません。\n\n【解決策】\n・プロジェクト内の「大容量動画を自動分割.bat」の上にこの動画をドロップして分割してください。\n・または、次回撮影時は1本あたり【5〜8分】で区切って撮影してください。`);
+          const numParts = Math.ceil(file.size / MAX_PART_SIZE);
+          
+          console.log(`[自動分割] ${file.name} (${sizeGb}GB) を ${numParts} パートに自動分割します...`);
+          
+          for (let p = 0; p < numParts; p++) {
+            const startByte = p * MAX_PART_SIZE;
+            const endByte = Math.min((p + 1) * MAX_PART_SIZE, file.size);
+            const partBlob = file.slice(startByte, endByte, file.type || "video/mp4");
+            
+            const partName = `${file.name.replace(/\.[^/.]+$/, "")}_part${p + 1}.mp4`;
+            const partFile = new File([partBlob], partName, { type: file.type || "video/mp4" });
+            partFile.isAutoSplit = true;
+            partFile.partLabel = `分割 ${p + 1}/${numParts}`;
+            
+            selectedVideoFiles.push(partFile);
+            addedCount++;
+          }
+
+          alert(`⚡ 大容量動画を自動分割しました！\n\n「${file.name}」(${sizeGb} GB) はGoogleの上限（2GB）を超えているため、安全に解析できるよう自動的に【${numParts}つのパート】に分割して登録しました。\n\nスタッフ側の追加操作は不要です。そのまま「AI解析を開始する」を押してください！`);
           continue;
         }
 
-        // 重複除外
+        // 通常（2GB以下）の動画ファイル
         if (!selectedVideoFiles.some(f => f.name === file.name && f.size === file.size)) {
           selectedVideoFiles.push(file);
           addedCount++;
@@ -152,6 +172,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (addedCount > 0) {
       renderVideoFilesList();
       updateStartButtonState();
+    } else {
+      alert("有効な動画ファイル（MP4 / MOV / WEBM）を選択してください。");
     }
   }
 
@@ -169,11 +191,15 @@ document.addEventListener("DOMContentLoaded", () => {
     selectedFilesList.innerHTML = "";
     selectedVideoFiles.forEach((file, idx) => {
       const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      const tagHtml = file.isAutoSplit
+        ? `<span class="px-1.5 py-0.5 bg-amber-100 text-amber-800 font-bold rounded text-[10px]">${escapeHtml(file.partLabel || "自動分割")}</span>`
+        : `<span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 font-bold rounded text-[10px]">動画${idx + 1}</span>`;
+
       const row = document.createElement("div");
       row.className = "flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700";
       row.innerHTML = `
         <div class="flex items-center space-x-2 truncate">
-          <span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 font-bold rounded text-[10px]">動画${idx + 1}</span>
+          ${tagHtml}
           <i data-lucide="file-video" class="w-4 h-4 text-indigo-600 flex-shrink-0"></i>
           <span class="font-medium truncate max-w-[220px] sm:max-w-xs">${escapeHtml(file.name)}</span>
           <span class="text-slate-400 text-[11px]">(${sizeMb} MB)</span>
