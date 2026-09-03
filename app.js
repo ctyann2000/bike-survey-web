@@ -503,7 +503,8 @@ document.addEventListener("DOMContentLoaded", () => {
           imageItems.push({
             uri: fData.file.uri,
             mimeType: mime,
-            label: `写真${j + 1}`
+            label: `写真${j + 1}`,
+            fileName: imgFile.name
           });
           updateProgress(
             pctBase + Math.round((pctStep * 0.4) * ((j + 1) / imageFiles.length)),
@@ -533,6 +534,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const photoSurveyData = await executePrecisionOcrWithFallback(imageItems, true, photoMapping, masterDataRecords, apiKey);
         const photoBikes = photoSurveyData.bikes || [];
+
+        // 「画像1」「写真1」等の表記を【実際のファイル名】に完全置換
+        photoBikes.forEach(b => {
+          if (!b.timestamp || b.timestamp === "写真" || b.timestamp === "確認済") {
+            b.timestamp = imageItems.map(it => it.fileName).join(", ");
+          } else {
+            imageItems.forEach((item, idx) => {
+              const reg = new RegExp(`\\[?(写真|画像|file|image)\\s*${idx + 1}\\]?`, "gi");
+              b.timestamp = b.timestamp.replace(reg, item.fileName);
+            });
+          }
+        });
+
         combinedBikes = combinedBikes.concat(photoBikes);
 
         updateProgress(
@@ -549,7 +563,7 @@ document.addEventListener("DOMContentLoaded", () => {
       for (let i = 0; i < videoFiles.length; i++) {
         currentBatch++;
         const file = videoFiles[i];
-        const vPrefix = videoFiles.length > 1 ? `[動画${i + 1}] ` : "";
+        const vPrefix = `[${file.name}] `;
         const pctBase = Math.round(((currentBatch - 1) / totalBatches) * 90);
         const pctStep = Math.round(90 / totalBatches);
 
@@ -587,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
           "Gemini 3.8/3.7/3.6 Flash でPOP文字・差額を精密抽出中",
           `Flash高精度モデル呼び出し中...`
         );
-        const videoItems = [{ uri: fileData.file.uri, mimeType: mimeType, label: `動画${i + 1}` }];
+        const videoItems = [{ uri: fileData.file.uri, mimeType: mimeType, label: `動画${i + 1}`, fileName: file.name }];
         const surveyData = await executePrecisionOcrWithFallback(videoItems, false, segmentAnalysis, masterDataRecords, apiKey);
 
         const bikesThisVideo = surveyData.bikes || [];
@@ -860,11 +874,15 @@ document.addEventListener("DOMContentLoaded", () => {
       : "";
 
     const isMultiImages = isImage && fileItems.length > 1;
+    const fileListDescription = fileItems.map((item, idx) => `・ファイル${idx + 1}: ${item.fileName || item.label}`).join("\n");
+    const sampleFileName = fileItems[0]?.fileName || "photo.jpg";
+
     const multiImageNotice = isMultiImages
       ? `【複数枚の写真一括解析モード】
-      添付された ${fileItems.length} 枚の写真（写真1〜写真${fileItems.length}）は同一売場の異なるアングルから撮影されたものです。
+      添付された ${fileItems.length} 枚の写真の実際のファイル名一覧：
+      ${fileListDescription}
       必ず全写真を見比べ、同じ自転車が角度違いや見切れで複数枚に写っていても1件にまとめて二重計上しないでください。
-      timestamp には写っていた写真番号（例: "[写真1]", "[写真1, 写真2]"）を記録してください。`
+      timestamp には「写真1」などの番号ではなく、その車体が写っていた【実際のファイル名】（例: "${sampleFileName}"）を記録してください。`
       : "";
 
     const mediaLabel = isImage ? (isMultiImages ? `${fileItems.length}枚の写真` : "写真") : "動画";
@@ -896,7 +914,7 @@ document.addEventListener("DOMContentLoaded", () => {
     - is_master_match: マスターに存在したかどうかのブール値（true/false）
     - quantity: 展示台数（POP記載の台数、または売場に物理的に並んでいる台数）
     - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
-    - timestamp: 時間または写真番号（動画の場合は出現時間 01:23、写真の場合は「写真1」等）
+    - timestamp: 参照ファイル名または時間（写真の場合は写っていた【実際のファイル名】をそのまま出力。動画の場合は出現時間 01:23）
 
     【重複排除の重要ルール（角度違い・位置違いの完全防止）】
     ・角度や距離を変えて撮影した写真、あるいは隣の自転車を撮った際に奥や横に見切れて写り込んだ同一車体・同一POPは、必ず1件にまとめて二重計上しないでください。
@@ -1092,7 +1110,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "税込価格(円)": priceInc,
         "台数": parseInt(b.quantity) || 1,
         "特記事項・POP": b.spec_notes || "",
-        "確認時間": b.timestamp || ""
+        "参照元ファイル・時間": b.timestamp || ""
       };
     });
 
@@ -1101,7 +1119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ws["!cols"] = [
       { wch: 16 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 10 },
       { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 8 },
-      { wch: 26 }, { wch: 20 }
+      { wch: 26 }, { wch: 24 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -1121,7 +1139,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const storeName = inputStoreName.value.trim() || "競合店舗";
     const surveyDate = inputSurveyDate.value || today;
 
-    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税抜価格", "マスター税抜", "税抜差額", "税込価格", "台数", "特記事項・POP", "確認時間"];
+    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税抜価格", "マスター税抜", "税抜差額", "税込価格", "台数", "特記事項・POP", "参照元ファイル・時間"];
     const rows = currentResults.map(b => {
       const isMatch = b.is_master_match === true;
       const hasMPrice = isMatch && b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
