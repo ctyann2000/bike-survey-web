@@ -29,14 +29,14 @@ jobs:
 
       - name: Generate config.js from GitHub Secrets
         env:
+          KEY_BIKE: ${{ secrets.GEMINI_API_KEY_BIKE }}
           KEY1: ${{ secrets.GEMINI_API_KEY }}
           KEY2: ${{ secrets.GEMINI_API_KEY_BIKE_SURVEY_WEB }}
-          KEY3: ${{ secrets['GEMINI_API_KEY_bike-survey-web'] }}
         run: |
-          API_KEY="${KEY1:-${KEY2:-$KEY3}}"
+          API_KEY="${KEY_BIKE:-${KEY1:-$KEY2}}"
           if [ -n "$API_KEY" ]; then
             echo "const CONFIG = { GEMINI_API_KEY: \"$API_KEY\" };" > config.js
-            echo "✓ GitHub SecretからAPIキーを自動注入しました"
+            echo "✓ GitHub Secret (GEMINI_API_KEY_BIKE) からAPIキーを自動注入しました"
           elif [ ! -f config.js ]; then
             echo "const CONFIG = { GEMINI_API_KEY: \"\" };" > config.js
           fi
