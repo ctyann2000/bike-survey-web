@@ -1,4 +1,4 @@
-﻿name: Deploy Bike Survey AI to GitHub Pages
+name: Deploy Bike Survey AI to GitHub Pages
 
 on:
   push:
@@ -26,6 +26,15 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      - name: Generate config.js from GitHub Secrets
+        run: |
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "const CONFIG = { GEMINI_API_KEY: \"${{ secrets.GEMINI_API_KEY }}\" };" > config.js
+            echo "✓ GitHub SecretからAPIキーを自動注入しました"
+          elif [ ! -f config.js ]; then
+            echo "const CONFIG = { GEMINI_API_KEY: \"\" };" > config.js
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
