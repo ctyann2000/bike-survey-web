@@ -350,85 +350,143 @@ document.addEventListener("DOMContentLoaded", () => {
     resultCard.classList.add("hidden");
     progressLog.innerHTML = "";
 
-    const totalFiles = selectedMediaFiles.length;
-    updateProgress(5, "準備中...", `合計 ${totalFiles} 件のメディアを順次解析します`, `解析パイプライン開始 (合計 ${totalFiles} 件)`);
-
+    const videoFiles = selectedMediaFiles.filter(f => !isImageFile(f));
+    const imageFiles = selectedMediaFiles.filter(f => isImageFile(f));
+    
     let combinedBikes = [];
     const hasMaster = masterDataRecords && masterDataRecords.length > 0;
 
+    const totalBatches = videoFiles.length + (imageFiles.length > 0 ? 1 : 0);
+    updateProgress(5, "準備中...", `動画 ${videoFiles.length}本、写真 ${imageFiles.length}枚の解析を開始します（API回数節約モード稼働）`, `解析パイプライン開始 (動画: ${videoFiles.length}本, 写真: ${imageFiles.length}枚)`);
+
     try {
-      for (let i = 0; i < totalFiles; i++) {
-        const file = selectedMediaFiles[i];
-        const isImg = isImageFile(file);
-        const prefixLabel = totalFiles > 1 ? (isImg ? `[写真${i + 1}] ` : `[動画${i + 1}] `) : "";
-        const basePercent = Math.round((i / totalFiles) * 90);
-        const perFileStep = Math.round(90 / totalFiles);
+      let currentBatch = 0;
+
+      // ----------------------------------------------------
+      // 1. 写真群の一括解析（【API節約】何十枚あってもたった1回のリクエストに集約！）
+      // ----------------------------------------------------
+      if (imageFiles.length > 0) {
+        currentBatch++;
+        const pctBase = Math.round(((currentBatch - 1) / totalBatches) * 90);
+        const pctStep = Math.round(90 / totalBatches);
 
         updateProgress(
-          basePercent + Math.round(perFileStep * 0.1),
-          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} をアップロード中...`,
-          `ファイル名: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
-          `▶ ${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} (${file.name}) の処理を開始`
+          pctBase + 5,
+          `写真 ${imageFiles.length} 枚を一括アップロード中...`,
+          "【API回数節約】全写真を1回のリクエストに集約して解析します",
+          `📷 写真 ${imageFiles.length} 枚のアップロード開始 (API消費は1回のみに抑制)`
         );
 
-        // 1. Files API アップロード
-        const mimeType = isImg ? (file.type || "image/jpeg") : (file.type || "video/mp4");
-        const fileData = await uploadToGeminiFilesApi(file, mimeType, apiKey);
-        
-        // 動画の場合はACTIVE待機
-        if (!isImg) {
+        // 全写真を Files API へアップロード
+        const imageItems = [];
+        for (let j = 0; j < imageFiles.length; j++) {
+          const imgFile = imageFiles[j];
+          const mime = imgFile.type || "image/jpeg";
+          const fData = await uploadToGeminiFilesApi(imgFile, mime, apiKey);
+          imageItems.push({
+            uri: fData.file.uri,
+            mimeType: mime,
+            label: `写真${j + 1}`
+          });
           updateProgress(
-            basePercent + Math.round(perFileStep * 0.3),
-            `動画 ${i + 1}/${totalFiles} 待機中...`,
-            "Google側で動画インデックス作成中",
-            `アップロード完了 (URI: ${fileData.file.uri})`
+            pctBase + Math.round((pctStep * 0.4) * ((j + 1) / imageFiles.length)),
+            `写真 ${j + 1}/${imageFiles.length} アップロード完了`,
+            `ファイル: ${imgFile.name}`,
+            `✓ 写真 ${j + 1}/${imageFiles.length} アップロード完了`
           );
-          await waitForFileActive(fileData.file.name, apiKey);
         }
 
-        // 2. Stage 1: トリアージ（写真の場合はスキップし即Stage 2へ）
-        let segmentAnalysis = { valid_segments: [], summary: "写真全編" };
-        if (!isImg) {
-          updateProgress(
-            basePercent + Math.round(perFileStep * 0.5),
-            `動画 ${i + 1}/${totalFiles} Stage 1: 有効区間判別中...`,
-            "Flash-Lite で移動時間をカットし有効区間を特定",
-            `Liteトリアージ実行中...`
-          );
-          segmentAnalysis = await analyzeValidSegmentsWithLite(fileData.file.uri, apiKey);
-        }
-
-        // 3. Stage 2: Flash 高精度モデルによる精密読取
+        // 全写真を1回のリクエストでまとめてGeminiに投げる（API消費: 1回！）
         updateProgress(
-          basePercent + Math.round(perFileStep * 0.8),
-          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} Stage 2: 精密解析中...`,
-          "Gemini 3.8/3.7/3.6 Flash でPOP文字・差額を精密抽出中",
-          `Flash高精度モデル呼び出し中...`
+          pctBase + Math.round(pctStep * 0.6),
+          `写真 ${imageFiles.length} 枚を一括AI解析中...`,
+          "全写真を同時に見比べ、角度違いの同一車体を自動マージしています",
+          `⚡ Gemini高精度モデル呼び出し（全${imageFiles.length}枚を1回で一括解析）...`
         );
-        const surveyData = await executePrecisionOcrWithFallback(fileData.file.uri, mimeType, isImg, segmentAnalysis, masterDataRecords, apiKey);
 
-        const bikesThisMedia = surveyData.bikes || [];
-        bikesThisMedia.forEach(b => {
-          b.timestamp = `${prefixLabel}${b.timestamp || (isImg ? "写真" : "00:00")}`;
-        });
+        const photoSurveyData = await executePrecisionOcrWithFallback(imageItems, true, null, masterDataRecords, apiKey);
+        const photoBikes = photoSurveyData.bikes || [];
+        combinedBikes = combinedBikes.concat(photoBikes);
 
-        combinedBikes = combinedBikes.concat(bikesThisMedia);
         updateProgress(
-          basePercent + perFileStep,
-          `${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} 完了`,
-          `このファイルから ${bikesThisMedia.length} SKU を抽出（累計: ${combinedBikes.length} SKU）`,
-          `✓ ${isImg ? '写真' : '動画'} ${i + 1}/${totalFiles} 抽出完了 (+${bikesThisMedia.length} SKU)`
+          pctBase + pctStep,
+          `写真 ${imageFiles.length} 枚の解析完了！`,
+          `写真群から ${photoBikes.length} SKU を抽出（API消費: 1回）`,
+          `✓ 写真一括解析完了 (+${photoBikes.length} SKU, API消費回数: 1回のみ)`
         );
       }
 
-      // 重複統合
-      updateProgress(95, "全データの統合集計中...", "重複排除とデータマージを実行中", "全データ統合中...");
+      // ----------------------------------------------------
+      // 2. 動画群の順次解析（動画は長尺・大容量のため1本ずつ安全処理）
+      // ----------------------------------------------------
+      for (let i = 0; i < videoFiles.length; i++) {
+        currentBatch++;
+        const file = videoFiles[i];
+        const vPrefix = videoFiles.length > 1 ? `[動画${i + 1}] ` : "";
+        const pctBase = Math.round(((currentBatch - 1) / totalBatches) * 90);
+        const pctStep = Math.round(90 / totalBatches);
+
+        updateProgress(
+          pctBase + Math.round(pctStep * 0.1),
+          `動画 ${i + 1}/${videoFiles.length} をアップロード中...`,
+          `ファイル名: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
+          `▶ 動画 ${i + 1}/${videoFiles.length} (${file.name}) の処理を開始`
+        );
+
+        const mimeType = file.type || "video/mp4";
+        const fileData = await uploadToGeminiFilesApi(file, mimeType, apiKey);
+
+        updateProgress(
+          pctBase + Math.round(pctStep * 0.3),
+          `動画 ${i + 1}/${videoFiles.length} 待機中...`,
+          "Google側で動画インデックス作成中",
+          `アップロード完了 (URI: ${fileData.file.uri})`
+        );
+        await waitForFileActive(fileData.file.name, apiKey);
+
+        // Stage 1: トリアージ
+        updateProgress(
+          pctBase + Math.round(pctStep * 0.5),
+          `動画 ${i + 1}/${videoFiles.length} Stage 1: 有効区間判別中...`,
+          "Flash-Lite で移動時間をカットし有効区間を特定",
+          `Liteトリアージ実行中...`
+        );
+        const segmentAnalysis = await analyzeValidSegmentsWithLite(fileData.file.uri, apiKey);
+
+        // Stage 2: 精密解析
+        updateProgress(
+          pctBase + Math.round(pctStep * 0.8),
+          `動画 ${i + 1}/${videoFiles.length} Stage 2: 精密解析中...`,
+          "Gemini 3.8/3.7/3.6 Flash でPOP文字・差額を精密抽出中",
+          `Flash高精度モデル呼び出し中...`
+        );
+        const videoItems = [{ uri: fileData.file.uri, mimeType: mimeType, label: `動画${i + 1}` }];
+        const surveyData = await executePrecisionOcrWithFallback(videoItems, false, segmentAnalysis, masterDataRecords, apiKey);
+
+        const bikesThisVideo = surveyData.bikes || [];
+        bikesThisVideo.forEach(b => {
+          b.timestamp = `${vPrefix}${b.timestamp || "00:00"}`;
+        });
+
+        combinedBikes = combinedBikes.concat(bikesThisVideo);
+        updateProgress(
+          pctBase + pctStep,
+          `動画 ${i + 1}/${videoFiles.length} 完了`,
+          `この動画から ${bikesThisVideo.length} SKU を抽出`,
+          `✓ 動画 ${i + 1}/${videoFiles.length} 抽出完了 (+${bikesThisVideo.length} SKU)`
+        );
+      }
+
+      // ----------------------------------------------------
+      // 3. 全データの最終名寄せ・重複統合（角度違い・別写真の重複を完全排除）
+      // ----------------------------------------------------
+      updateProgress(95, "全データの統合集計中...", "高精度名寄せエンジンで重複を最終排除中", "全データ名寄せ統合中...");
       const mergedBikes = mergeDuplicateBikes(combinedBikes);
 
       currentResults = mergedBikes;
       renderResults(currentResults, hasMaster);
 
-      updateProgress(100, "完了！", `全 ${totalFiles} 件のメディア解析が完了しました`, `全工程完了！合計 ${currentResults.length} SKU を抽出`);
+      updateProgress(100, "完了！", "全メディアの解析・統合が完了しました", `全工程完了！合計 ${currentResults.length} SKU を抽出 (API消費を最小限に抑制)`);
       setTimeout(() => {
         progressCard.classList.add("hidden");
         resultCard.classList.remove("hidden");
@@ -600,7 +658,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Stage 2: 高精度Flashモデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック) ---
-  async function executePrecisionOcrWithFallback(fileUri, mimeType, isImage, segmentInfo, masterRecords, apiKey) {
+  // fileItems: [{ uri: string, mimeType: string, label: string }]
+  async function executePrecisionOcrWithFallback(fileItems, isImage, segmentInfo, masterRecords, apiKey) {
     const fallbackChain = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
 
     let masterContext = "";
@@ -616,16 +675,25 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     }
 
-    const segmentsHint = (!isImage && segmentInfo.valid_segments && segmentInfo.valid_segments.length > 0)
+    const segmentsHint = (!isImage && segmentInfo && segmentInfo.valid_segments && segmentInfo.valid_segments.length > 0)
       ? `【有効区間情報】Liteモデルにより以下の区間にPOPが集中していることが判明しています: ${segmentInfo.valid_segments.join(", ")}。`
       : "";
 
-    const mediaLabel = isImage ? "写真（静止画）" : "動画";
+    const isMultiImages = isImage && fileItems.length > 1;
+    const multiImageNotice = isMultiImages
+      ? `【複数枚の写真一括解析モード】
+      添付された ${fileItems.length} 枚の写真（写真1〜写真${fileItems.length}）は同一売場の異なるアングルから撮影されたものです。
+      必ず全写真を見比べ、同じ自転車が角度違いや見切れで複数枚に写っていても1件にまとめて二重計上しないでください。
+      timestamp には写っていた写真番号（例: "[写真1]", "[写真1, 写真2]"）を記録してください。`
+      : "";
+
+    const mediaLabel = isImage ? (isMultiImages ? `${fileItems.length}枚の写真` : "写真") : "動画";
 
     const prompt = `
     あなたは自転車小売業の競合店舗調査の専門エキスパートです。
     この${mediaLabel}に映っているすべての自転車の【値札・プライスカードPOP】を読み取り、
     全商品の詳細情報を漏れなく抽出してください。
+    ${multiImageNotice}
     ${segmentsHint}
     ${masterContext}
 
@@ -642,11 +710,12 @@ document.addEventListener("DOMContentLoaded", () => {
     - quantity: 展示台数（POP記載の台数、または売場に物理的に並んでいる台数）
     - price_tax_excluded: 税抜価格（円・数値）
     - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
-    - timestamp: 時間（動画の場合は出現時間 01:23、写真の場合は「写真」）
+    - timestamp: 時間または写真番号（動画の場合は出現時間 01:23、写真の場合は「写真1」等）
 
     【重複排除の重要ルール（角度違い・位置違いの完全防止）】
     ・角度や距離を変えて撮影した写真、あるいは隣の自転車を撮った際に奥や横に見切れて写り込んだ同一車体・同一POPは、必ず1件にまとめて二重計上しないでください。
     ・同一車体が複数枚の写真に写っていても「展示台数」を水増しせず、売場に物理的に展示されている実台数を記録してください。
+    `;
 
     const responseSchema = {
       type: "OBJECT",
@@ -679,18 +748,26 @@ document.addEventListener("DOMContentLoaded", () => {
       required: ["bikes"]
     };
 
+    // 複数ファイルをパーツとして展開
+    const contentParts = [{ text: prompt }];
+    fileItems.forEach(item => {
+      contentParts.push({
+        file_data: { mime_type: item.mimeType, file_uri: item.uri }
+      });
+    });
+
     let lastError = null;
 
     for (const model of fallbackChain) {
       try {
-        console.log(`モデル ${model} で解析を実行中...`);
+        console.log(`モデル ${model} で解析を実行中（ファイル数: ${fileItems.length}件、API消費1回）...`);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: mimeType, file_uri: fileUri } }] }],
+            contents: [{ parts: contentParts }],
             generationConfig: { responseMimeType: "application/json", responseSchema: responseSchema }
           })
         });
@@ -699,7 +776,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const resJson = await response.json();
           const candidate = resJson.candidates?.[0];
           if (candidate && candidate.content?.parts?.[0]?.text) {
-            console.log(`✓ モデル ${model} で解析成功！`);
+            console.log(`✓ モデル ${model} で一括解析成功！`);
             return JSON.parse(candidate.content.parts[0].text);
           }
         }
