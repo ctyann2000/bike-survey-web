@@ -27,10 +27,15 @@
         </div>
       </div>
       <div class="flex items-center space-x-3">
-        <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-          <span class="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-          Gemini 3.7 Flash 稼働中
-        </span>
+        <div class="flex items-center space-x-2">
+          <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <span class="w-2 h-2 mr-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+            AIパイプライン自動稼働中
+          </span>
+          <button id="btn-toggle-api-settings" title="APIキー設定" class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
+            <i data-lucide="settings" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>
     </div>
   </header>
@@ -38,19 +43,19 @@
   <!-- メインコンテンツ -->
   <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-6">
 
-    <!-- APIキー設定バー -->
-    <div id="api-key-banner" class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+    <!-- APIキー設定バー（設定済みの場合は自動的に非表示） -->
+    <div id="api-key-banner" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
       <div class="flex items-center space-x-3">
-        <div class="text-amber-600"><i data-lucide="key" class="w-5 h-5"></i></div>
+        <div class="text-indigo-600"><i data-lucide="key" class="w-5 h-5"></i></div>
         <div>
-          <h2 class="text-sm font-semibold text-amber-900">Google Gemini APIキーを設定してください</h2>
-          <p class="text-xs text-amber-700">無料枠でご利用いただけます。キーはブラウザ内のみに安全に保存されます。</p>
+          <h2 class="text-sm font-semibold text-slate-900">Google Gemini APIキー設定</h2>
+          <p class="text-xs text-slate-500">config.js で設定済みです。変更したい場合のみ入力してください。</p>
         </div>
       </div>
       <div class="flex items-center space-x-2 w-full sm:w-auto">
-        <input type="password" id="input-api-key" placeholder="AIzaSy..." class="px-3 py-1.5 text-xs bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 flex-1 sm:w-64 font-mono">
-        <button id="btn-save-key" class="px-3 py-1.5 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition">保存</button>
-        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-xs text-amber-800 underline hover:text-amber-950 whitespace-nowrap">キー取得↗</a>
+        <input type="password" id="input-api-key" placeholder="AIzaSy..." class="px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-1 sm:w-64 font-mono">
+        <button id="btn-save-key" class="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">更新</button>
+        <button id="btn-close-api-banner" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">✕</button>
       </div>
     </div>
 

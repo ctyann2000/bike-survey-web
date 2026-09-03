@@ -59,36 +59,49 @@ document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   inputSurveyDate.value = today;
 
+  const btnToggleApiSettings = document.getElementById("btn-toggle-api-settings");
+  const btnCloseApiBanner = document.getElementById("btn-close-api-banner");
+
   let activeApiKey = "";
   if (typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY.trim() !== "") {
     activeApiKey = CONFIG.GEMINI_API_KEY.trim();
     inputApiKey.value = activeApiKey;
-    apiKeyBanner.classList.add("bg-emerald-50", "border-emerald-200");
-    apiKeyBanner.classList.remove("bg-amber-50", "border-amber-200");
-    const bannerTitle = apiKeyBanner.querySelector("h2");
-    if (bannerTitle) bannerTitle.textContent = "✓ APIキーを設定ファイル（config.js）から自動読込しました";
+    // 設定済みの場合は画面に表示しない（非表示を維持）
+    apiKeyBanner.classList.add("hidden");
   } else {
     const savedKey = localStorage.getItem("gemini_api_key");
     if (savedKey) {
       activeApiKey = savedKey;
       inputApiKey.value = savedKey;
-      apiKeyBanner.classList.add("bg-emerald-50", "border-emerald-200");
-      apiKeyBanner.classList.remove("bg-amber-50", "border-amber-200");
+      apiKeyBanner.classList.add("hidden");
+    } else {
+      // 未設定の場合のみ注意バーとして表示
+      apiKeyBanner.classList.remove("hidden");
+      apiKeyBanner.classList.add("bg-amber-50", "border-amber-200");
     }
+  }
+
+  if (btnToggleApiSettings) {
+    btnToggleApiSettings.addEventListener("click", () => {
+      apiKeyBanner.classList.toggle("hidden");
+    });
+  }
+
+  if (btnCloseApiBanner) {
+    btnCloseApiBanner.addEventListener("click", () => {
+      apiKeyBanner.classList.add("hidden");
+    });
   }
 
   btnSaveKey.addEventListener("click", () => {
     const key = inputApiKey.value.trim();
     if (key) {
       localStorage.setItem("gemini_api_key", key);
-      alert("APIキーをブラウザに安全に保存しました！");
-      apiKeyBanner.classList.add("bg-emerald-50", "border-emerald-200");
-      apiKeyBanner.classList.remove("bg-amber-50", "border-amber-200");
+      alert("APIキーを保存しました！");
+      apiKeyBanner.classList.add("hidden");
     } else {
       localStorage.removeItem("gemini_api_key");
       alert("APIキーをクリアしました。");
-      apiKeyBanner.classList.remove("bg-emerald-50", "border-emerald-200");
-      apiKeyBanner.classList.add("bg-amber-50", "border-amber-200");
     }
     updateStartButtonState();
   });
