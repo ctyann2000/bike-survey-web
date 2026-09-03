@@ -396,23 +396,33 @@ document.addEventListener("DOMContentLoaded", () => {
           );
         }
 
-        // 全写真を1回のリクエストでまとめてGeminiに投げる（API消費: 1回！）
+        // Stage 1 (Lite): 全写真を見比べて重複・空間関係を事前マッピング（1日500回枠）
         updateProgress(
-          pctBase + Math.round(pctStep * 0.6),
-          `写真 ${imageFiles.length} 枚を一括AI解析中...`,
-          "全写真を同時に見比べ、角度違いの同一車体を自動マージしています",
-          `⚡ Gemini高精度モデル呼び出し（全${imageFiles.length}枚を1回で一括解析）...`
+          pctBase + Math.round(pctStep * 0.5),
+          `【Stage 1】Liteモデルによる事前空間マッピング中...`,
+          `全写真を見比べ、同一車体の別アングル重複を整理しています`,
+          `⚡ Flash-Lite (1日500回枠) で写真群の事前トリアージ実行中...`
+        );
+        const photoMapping = await analyzePhotoMappingWithLite(imageItems, apiKey);
+        console.log("Lite写真マッピング結果:", photoMapping);
+
+        // Stage 2 (Flash): Liteのマップを元に精密OCR ＆ 差額照合（API消費: 1回）
+        updateProgress(
+          pctBase + Math.round(pctStep * 0.8),
+          `【Stage 2】Flash高精度モデルによる精密解析中...`,
+          `Liteの空間マップを元にPOP文字・型番・差額を精密抽出中`,
+          `🔍 Gemini 3.8/3.7/3.6 Flash で超精密読取中（API消費: 1回のみ）...`
         );
 
-        const photoSurveyData = await executePrecisionOcrWithFallback(imageItems, true, null, masterDataRecords, apiKey);
+        const photoSurveyData = await executePrecisionOcrWithFallback(imageItems, true, photoMapping, masterDataRecords, apiKey);
         const photoBikes = photoSurveyData.bikes || [];
         combinedBikes = combinedBikes.concat(photoBikes);
 
         updateProgress(
           pctBase + pctStep,
           `写真 ${imageFiles.length} 枚の解析完了！`,
-          `写真群から ${photoBikes.length} SKU を抽出（API消費: 1回）`,
-          `✓ 写真一括解析完了 (+${photoBikes.length} SKU, API消費回数: 1回のみ)`
+          `写真群から ${photoBikes.length} SKU を抽出（API消費: 1回のみ）`,
+          `✓ 写真一括2段階解析完了 (+${photoBikes.length} SKU, Flash消費: 1回)`
         );
       }
 
@@ -649,11 +659,49 @@ document.addEventListener("DOMContentLoaded", () => {
         })
       });
 
-      if (!response.ok) return { valid_segments: [], summary: "全編有効" };
+  // --- Stage 1 (写真用): Flash-Lite による写真空間マッピング ＆ 写り込みトリアージ ---
+  async function analyzePhotoMappingWithLite(fileItems, apiKey) {
+    if (!fileItems || fileItems.length <= 1) {
+      return { overlap_summary: "単一写真", estimated_unique_bikes: 1 };
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+    const prompt = `
+    これらの ${fileItems.length} 枚の写真は、同一店舗の自転車売場を撮影した写真群です。
+    全写真を見比べ、以下の2点を整理してください：
+    1. 写真間で「同じ自転車・同じ値札POP」が別アングルや見切れで重複して写っている組み合わせ（例: "写真1の車体は写真3にも写っている" 等）
+    2. 売場全体でユニークな自転車はおおよそ何台存在するか
+    `;
+
+    const schema = {
+      type: "OBJECT",
+      properties: {
+        overlap_summary: { type: "STRING" },
+        estimated_unique_bikes: { type: "INTEGER" }
+      },
+      required: ["overlap_summary"]
+    };
+
+    const contentParts = [{ text: prompt }];
+    fileItems.forEach(item => {
+      contentParts.push({ file_data: { mime_type: item.mimeType, file_uri: item.uri } });
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: contentParts }],
+          generationConfig: { responseMimeType: "application/json", responseSchema: schema }
+        })
+      });
+
+      if (!response.ok) return { overlap_summary: "全写真から重複排除して抽出" };
       const resJson = await response.json();
       return JSON.parse(resJson.candidates[0].content.parts[0].text);
     } catch (e) {
-      return { valid_segments: [], summary: "全編有効" };
+      return { overlap_summary: "全写真から重複排除して抽出" };
     }
   }
 
@@ -679,6 +727,13 @@ document.addEventListener("DOMContentLoaded", () => {
       ? `【有効区間情報】Liteモデルにより以下の区間にPOPが集中していることが判明しています: ${segmentInfo.valid_segments.join(", ")}。`
       : "";
 
+    const photoMappingHint = (isImage && segmentInfo && segmentInfo.overlap_summary)
+      ? `【Liteモデルによる事前同一車体マッピング情報】
+      全写真の事前トリアージにより、同一車体の写り込み関係が以下のように整理されています:
+      ${segmentInfo.overlap_summary}
+      このマッピング情報を参照し、同一車体を確実に1レコードに統合してください。`
+      : "";
+
     const isMultiImages = isImage && fileItems.length > 1;
     const multiImageNotice = isMultiImages
       ? `【複数枚の写真一括解析モード】
@@ -694,6 +749,7 @@ document.addEventListener("DOMContentLoaded", () => {
     この${mediaLabel}に映っているすべての自転車の【値札・プライスカードPOP】を読み取り、
     全商品の詳細情報を漏れなく抽出してください。
     ${multiImageNotice}
+    ${photoMappingHint}
     ${segmentsHint}
     ${masterContext}
 
