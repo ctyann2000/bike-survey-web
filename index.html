@@ -23,7 +23,7 @@
         </div>
         <div>
           <h1 class="text-lg font-bold text-slate-900 leading-tight">自転車競合店調査 AI</h1>
-          <p class="text-xs text-slate-500">店舗マスターExcel連携 ＆ 4K動画解析 ➔ Excel自動出力</p>
+          <p class="text-xs text-slate-500">店舗マスター照合 ＆ 4K動画解析 ➔ Excel自動出力</p>
         </div>
       </div>
       <div class="flex items-center space-x-3">
@@ -84,10 +84,10 @@
         <div class="pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-2">
           <div class="flex items-center space-x-1.5 text-emerald-700 font-semibold">
             <i data-lucide="layers" class="w-4 h-4 text-emerald-500"></i>
-            <span>店舗マスター連動モード搭載</span>
+            <span>マスターExcel照合機能</span>
           </div>
           <p class="text-[11px] leading-relaxed text-slate-400">
-            その店のマスターExcel（または前回調査Excel）を投入すると、認識精度が100%に近づき、前回比の価格増減（値下げ/値上げ）も自動算出されます。
+            その店のマスターExcelを投入すると、認識精度が向上し、マスター価格との「差額」が自動計算されます。
           </p>
         </div>
       </div>
@@ -124,9 +124,9 @@
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
               <i data-lucide="file-spreadsheet" class="w-5 h-5 text-emerald-600"></i>
-              <span>③ 店舗マスターExcel（任意・前回データ等）</span>
+              <span>③ 店舗マスターExcel（任意）</span>
             </h2>
-            <span class="text-[11px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">精度UP ＆ 差分比較</span>
+            <span class="text-[11px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">精度UP ＆ 差額算出</span>
           </div>
 
           <div id="master-drop-zone" class="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
@@ -135,8 +135,8 @@
               <i data-lucide="file-plus-2" class="w-5 h-5"></i>
             </div>
             <div>
-              <p class="text-xs font-semibold text-slate-700">店舗マスター または 前回の調査Excel をドロップ（任意）</p>
-              <p class="text-[11px] text-slate-400 mt-0.5">.xlsx / .csv を選択すると、AIが商品カタログとして事前照合します</p>
+              <p class="text-xs font-semibold text-slate-700">店舗マスターExcel（.xlsx / .csv）をドロップ（任意）</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">マスター価格がある場合、売場価格との「差額」が自動出力されます</p>
             </div>
             <div id="selected-master-info" class="hidden mt-1 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between w-full max-w-sm text-xs text-emerald-900">
               <div class="flex items-center space-x-2 truncate">
@@ -235,10 +235,10 @@
               <th class="px-3 py-2.5">車種名・モデル名</th>
               <th class="px-3 py-2.5">型番/品番</th>
               <th class="px-3 py-2.5">年式</th>
-              <th class="px-3 py-2.5 text-right">今回税込価格</th>
-              <th class="px-3 py-2.5 text-right">前回比差分</th>
+              <th class="px-3 py-2.5 text-right">税込価格</th>
+              <th class="px-3 py-2.5 text-right">マスター価格</th>
+              <th class="px-3 py-2.5 text-right font-bold">差額</th>
               <th class="px-3 py-2.5 text-center">台数</th>
-              <th class="px-3 py-2.5 text-center">状態</th>
               <th class="px-3 py-2.5">特記事項・POP</th>
               <th class="px-3 py-2.5 text-center font-mono">確認時間</th>
             </tr>
@@ -251,7 +251,7 @@
 
       <div class="text-[11px] text-slate-400 flex items-center justify-between pt-2">
         <span>※「確認時間」は動画内で該当車両が映っている時間です。確認が必要な際にご活用ください。</span>
-        <span>Excelダウンロード時にも確認時間・前回価格・価格差分がそのまま含まれます。</span>
+        <span>※「差額」＝ 売場税込価格 − マスター価格 です（マスター価格がない場合は「-」）。</span>
       </div>
     </div>
 

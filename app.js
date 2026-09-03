@@ -1,6 +1,6 @@
 // ========================================================
 // 自転車競合店調査 AI - メインアプリケーションロジック
-// (店舗マスターExcel連携 ＆ 差分比較対応版)
+// (店舗マスター照合 ＆ 差額算出版)
 // ========================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -196,7 +196,6 @@ document.addEventListener("DOMContentLoaded", () => {
     btnStartAnalysis.disabled = !(hasKey && hasVideo);
   }
 
-  // --- 進捗表示ユーティリティ ---
   function updateProgress(percent, title, desc, logMsg) {
     progressBar.style.width = `${percent}%`;
     progressPercent.textContent = `${percent}%`;
@@ -240,14 +239,14 @@ document.addEventListener("DOMContentLoaded", () => {
       await waitForFileActive(fileData.file.name, apiKey);
       
       const hasMaster = masterDataRecords && masterDataRecords.length > 0;
-      const masterLog = hasMaster ? `マスター連携モード（${masterDataRecords.length} SKUの辞書を照合中）` : "通常モード（新規全抽出）";
+      const masterLog = hasMaster ? `マスター照合モード（${masterDataRecords.length} SKUのマスターと突合中）` : "通常モード（新規全抽出）";
       updateProgress(75, "AIマルチモーダル解析中...", "POP文字の認識とマスター照合を実行中...", `モデル呼び出し中: ${masterLog}`);
 
       // STEP 3: Gemini 3.7 Flash による構造化抽出
       const modelName = selectModel.value || "gemini-3.7-flash";
       const surveyData = await generateSurveyData(fileData.file.uri, modelName, apiKey, masterDataRecords);
 
-      updateProgress(95, "結果集計中...", "価格差分とステータスの整形中", `解析完了: 合計 ${surveyData.bikes ? surveyData.bikes.length : 0} 件のSKUを検出`);
+      updateProgress(95, "結果集計中...", "差額計算とデータ整形中", `解析完了: 合計 ${surveyData.bikes ? surveyData.bikes.length : 0} 件のSKUを検出`);
 
       // STEP 4: 結果の描画
       currentResults = surveyData.bikes || [];
@@ -324,26 +323,22 @@ document.addEventListener("DOMContentLoaded", () => {
     throw new Error("動画処理の待機時間がタイムアウトしました。");
   }
 
-  // --- Gemini 構造化生成リクエスト（マスター連携対応） ---
+  // --- Gemini 構造化生成リクエスト ---
   async function generateSurveyData(fileUri, model, apiKey, masterRecords) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     let masterContext = "";
     if (masterRecords && masterRecords.length > 0) {
-      // マスター情報を軽量テキストテーブル化
-      const sample = masterRecords.slice(0, 300); // 最大300件を注入
+      const sample = masterRecords.slice(0, 300);
       masterContext = `
-      【店舗別商品マスター情報（前回調査または定番カタログ）】
+      【店舗マスターExcel情報】
       ${JSON.stringify(sample)}
       
       【マスター照合ルール】
-      1. 動画内に映るPOP・値札を、上記マスターの商品（車種名・型番）と優先的に照合（名寄せ）してください。
-      2. 一致した商品は正式名称を適用し、マスターの前回価格と比較して previous_price_tax_included, price_difference, status を算出してください。
-      3. status は以下から判定してください:
-         - 値下げ: 今回価格 < 前回価格
-         - 値上げ: 今回価格 > 前回価格
-         - 据置: 今回価格 == 前回価格
-         - 新規追加: マスターに存在しなかった新商品
+      1. 動画内に映るPOP・値札を、上記マスターの商品（車種名・型番）と照合（名寄せ）してください。
+      2. 一致した商品は正式名称を適用し、マスター記載の価格を master_price として取得してください。
+      3. price_diff（差額）は【売場税込価格 − マスター価格】を計算してください（例: 売場119,800円、マスター128,000円なら -8200）。
+      4. マスターに該当商品がない場合は、master_price と price_diff は null（または0）としてください。
       `;
     }
 
@@ -360,13 +355,12 @@ document.addEventListener("DOMContentLoaded", () => {
     - model_name: 車種名・モデル名
     - model_code: 型番/品番（POPに記載があれば）
     - model_year: 年式（例: 2024年, 2023年型落ち, 不明）
-    - price_tax_included: 今回の税込価格（円・数値）
-    - price_tax_excluded: 今回の税抜価格（円・数値）
-    - previous_price_tax_included: 前回の税込価格（マスター記載の価格。不明時は今回の税込価格と同じ）
-    - price_difference: 前回比差分（今回税込 - 前回税込。例: -8200、0、5000）
+    - price_tax_included: 税込価格（円・数値）
+    - master_price: マスター価格（マスターExcelに価格がある場合。ない場合はnull）
+    - price_diff: 差額（税込価格 − マスター価格。マスター価格がない場合はnull）
     - quantity: 展示台数（同モデル・同価格の並び台数）
-    - status: 状態（値下げ / 値上げ / 据置 / 新規追加）
-    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、台数限定特価等）
+    - price_tax_excluded: 税抜価格（円・数値）
+    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
     - timestamp: 動画内で出現した時間（例: 01:23）
 
     【ルール】
@@ -390,11 +384,10 @@ document.addEventListener("DOMContentLoaded", () => {
               model_code: { type: "STRING" },
               model_year: { type: "STRING" },
               price_tax_included: { type: "INTEGER" },
-              price_tax_excluded: { type: "INTEGER" },
-              previous_price_tax_included: { type: "INTEGER" },
-              price_difference: { type: "INTEGER" },
+              master_price: { type: "INTEGER" },
+              price_diff: { type: "INTEGER" },
               quantity: { type: "INTEGER" },
-              status: { type: "STRING" },
+              price_tax_excluded: { type: "INTEGER" },
               spec_notes: { type: "STRING" },
               timestamp: { type: "STRING" }
             },
@@ -439,7 +432,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ========================================================
-  // 4. 解析結果の描画（差分表示対応）
+  // 4. 解析結果の描画（「差額」表示対応）
   // ========================================================
   function renderResults(bikes, hasMaster) {
     tableBody.innerHTML = "";
@@ -456,7 +449,6 @@ document.addEventListener("DOMContentLoaded", () => {
     bikes.forEach((bike) => {
       const qty = parseInt(bike.quantity) || 1;
       const priceInc = parseInt(bike.price_tax_included) || 0;
-      const diff = parseInt(bike.price_difference) || 0;
       totalQty += qty;
       totalPrice += priceInc * qty;
 
@@ -464,20 +456,23 @@ document.addEventListener("DOMContentLoaded", () => {
         ebikeQty += qty;
       }
 
-      // 差分バッジのスタイル
-      let diffHtml = '<span class="text-slate-400 font-mono">±0</span>';
-      if (diff < 0) {
-        diffHtml = `<span class="text-rose-600 font-bold font-mono">▼ ¥${Math.abs(diff).toLocaleString()}</span>`;
-      } else if (diff > 0) {
-        diffHtml = `<span class="text-blue-600 font-bold font-mono">▲ ¥${diff.toLocaleString()}</span>`;
-      }
+      // マスター価格の表示
+      const mPrice = (bike.master_price !== null && bike.master_price !== undefined && bike.master_price > 0)
+        ? `¥${parseInt(bike.master_price).toLocaleString()}`
+        : "-";
 
-      // ステータスバッジ
-      let statusClass = "bg-slate-100 text-slate-700";
-      const statusText = bike.status || (hasMaster ? "据置" : "通常");
-      if (statusText === "値下げ") statusClass = "bg-rose-100 text-rose-800 font-bold";
-      else if (statusText === "値上げ") statusClass = "bg-blue-100 text-blue-800 font-bold";
-      else if (statusText === "新規追加") statusClass = "bg-emerald-100 text-emerald-800 font-bold";
+      // 差額の表示
+      let diffHtml = "-";
+      if (bike.price_diff !== null && bike.price_diff !== undefined && mPrice !== "-") {
+        const diff = parseInt(bike.price_diff);
+        if (diff < 0) {
+          diffHtml = `<span class="text-rose-600 font-bold font-mono">¥${diff.toLocaleString()}</span>`;
+        } else if (diff > 0) {
+          diffHtml = `<span class="text-blue-600 font-bold font-mono">+¥${diff.toLocaleString()}</span>`;
+        } else {
+          diffHtml = `<span class="text-slate-400 font-mono">¥0</span>`;
+        }
+      }
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -487,9 +482,9 @@ document.addEventListener("DOMContentLoaded", () => {
         <td class="px-3 py-2 font-mono text-slate-500 text-[11px]">${escapeHtml(bike.model_code || "-")}</td>
         <td class="px-3 py-2 whitespace-nowrap text-slate-600">${escapeHtml(bike.model_year || "不明")}</td>
         <td class="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">¥${priceInc.toLocaleString()}</td>
+        <td class="px-3 py-2 text-right text-slate-500 whitespace-nowrap font-mono">${mPrice}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">${diffHtml}</td>
         <td class="px-3 py-2 text-center font-bold text-indigo-600">${qty}</td>
-        <td class="px-3 py-2 text-center whitespace-nowrap"><span class="px-2 py-0.5 rounded-full text-[10px] ${statusClass}">${escapeHtml(statusText)}</span></td>
         <td class="px-3 py-2 text-slate-500 text-[11px]">${escapeHtml(bike.spec_notes || "")}</td>
         <td class="px-3 py-2 text-center font-mono text-xs text-indigo-700 bg-indigo-50/50 rounded font-semibold whitespace-nowrap">${escapeHtml(bike.timestamp || "00:00")}</td>
       `;
@@ -508,7 +503,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ========================================================
-  // 5. Excel (.xlsx) ダウンロード機能 (差分列付き)
+  // 5. Excel (.xlsx) ダウンロード機能
   // ========================================================
   btnExportExcel.addEventListener("click", () => {
     if (!currentResults || currentResults.length === 0) {
@@ -519,37 +514,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const storeName = inputStoreName.value.trim() || "競合店舗";
     const surveyDate = inputSurveyDate.value || today;
 
-    const excelRows = currentResults.map(b => ({
-      "カテゴリ": b.category || "",
-      "メーカー": b.maker || "",
-      "車種名・モデル名": b.model_name || "",
-      "型番/品番": b.model_code || "",
-      "年式": b.model_year || "不明",
-      "今回税込価格(円)": parseInt(b.price_tax_included) || 0,
-      "前回税込価格(円)": parseInt(b.previous_price_tax_included) || parseInt(b.price_tax_included) || 0,
-      "前回比差分(円)": parseInt(b.price_difference) || 0,
-      "状態": b.status || "据置",
-      "台数": parseInt(b.quantity) || 1,
-      "今回税抜価格(円)": parseInt(b.price_tax_excluded) || 0,
-      "特記事項・POP": b.spec_notes || "",
-      "確認時間": b.timestamp || ""
-    }));
+    const excelRows = currentResults.map(b => {
+      const hasMPrice = b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      return {
+        "カテゴリ": b.category || "",
+        "メーカー": b.maker || "",
+        "車種名・モデル名": b.model_name || "",
+        "型番/品番": b.model_code || "",
+        "年式": b.model_year || "不明",
+        "税込価格(円)": parseInt(b.price_tax_included) || 0,
+        "マスター価格(円)": hasMPrice ? parseInt(b.master_price) : "-",
+        "差額(円)": hasMPrice && b.price_diff !== null && b.price_diff !== undefined ? parseInt(b.price_diff) : "-",
+        "台数": parseInt(b.quantity) || 1,
+        "税抜価格(円)": parseInt(b.price_tax_excluded) || 0,
+        "特記事項・POP": b.spec_notes || "",
+        "確認時間": b.timestamp || ""
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(excelRows);
 
-    // 列幅の自動設定
     ws["!cols"] = [
       { wch: 16 }, // カテゴリ
       { wch: 16 }, // メーカー
       { wch: 26 }, // 車種名
       { wch: 16 }, // 型番
       { wch: 10 }, // 年式
-      { wch: 15 }, // 今回税込価格
-      { wch: 15 }, // 前回税込価格
-      { wch: 14 }, // 前回比差分
-      { wch: 12 }, // 状態
+      { wch: 15 }, // 税込価格
+      { wch: 16 }, // マスター価格
+      { wch: 14 }, // 差額
       { wch: 8 },  // 台数
-      { wch: 15 }, // 今回税抜価格
+      { wch: 15 }, // 税抜価格
       { wch: 24 }, // 特記事項
       { wch: 12 }  // 確認時間
     ];
@@ -571,22 +566,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const storeName = inputStoreName.value.trim() || "競合店舗";
     const surveyDate = inputSurveyDate.value || today;
 
-    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "今回税込価格", "前回税込価格", "前回比差分", "状態", "台数", "今回税抜価格", "特記事項・POP", "確認時間"];
-    const rows = currentResults.map(b => [
-      `"${(b.category || "").replace(/"/g, '""')}"`,
-      `"${(b.maker || "").replace(/"/g, '""')}"`,
-      `"${(b.model_name || "").replace(/"/g, '""')}"`,
-      `"${(b.model_code || "").replace(/"/g, '""')}"`,
-      `"${(b.model_year || "").replace(/"/g, '""')}"`,
-      parseInt(b.price_tax_included) || 0,
-      parseInt(b.previous_price_tax_included) || parseInt(b.price_tax_included) || 0,
-      parseInt(b.price_difference) || 0,
-      `"${(b.status || "据置").replace(/"/g, '""')}"`,
-      parseInt(b.quantity) || 1,
-      parseInt(b.price_tax_excluded) || 0,
-      `"${(b.spec_notes || "").replace(/"/g, '""')}"`,
-      `"${(b.timestamp || "").replace(/"/g, '""')}"`
-    ]);
+    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税込価格", "マスター価格", "差額", "台数", "税抜価格", "特記事項・POP", "確認時間"];
+    const rows = currentResults.map(b => {
+      const hasMPrice = b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      return [
+        `"${(b.category || "").replace(/"/g, '""')}"`,
+        `"${(b.maker || "").replace(/"/g, '""')}"`,
+        `"${(b.model_name || "").replace(/"/g, '""')}"`,
+        `"${(b.model_code || "").replace(/"/g, '""')}"`,
+        `"${(b.model_year || "").replace(/"/g, '""')}"`,
+        parseInt(b.price_tax_included) || 0,
+        hasMPrice ? parseInt(b.master_price) : "-",
+        hasMPrice && b.price_diff !== null && b.price_diff !== undefined ? parseInt(b.price_diff) : "-",
+        parseInt(b.quantity) || 1,
+        parseInt(b.price_tax_excluded) || 0,
+        `"${(b.spec_notes || "").replace(/"/g, '""')}"`,
+        `"${(b.timestamp || "").replace(/"/g, '""')}"`
+      ];
+    });
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

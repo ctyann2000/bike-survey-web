@@ -1,6 +1,6 @@
 """
 自転車競合店調査 AI - Python 自律マルチエージェントスクリプト
-(店舗マスターExcel連携 ＆ 差分比較対応版)
+(店舗マスター照合 ＆ 差額算出版)
 """
 import asyncio
 import os
@@ -19,12 +19,11 @@ class BikeRecord(BaseModel):
     model_name: str = Field(description="車種名・モデル名")
     model_code: Optional[str] = Field(default="", description="型番・品番")
     model_year: Optional[str] = Field(default="不明", description="年式")
-    price_tax_included: int = Field(description="今回の税込価格(円)")
-    previous_price_tax_included: Optional[int] = Field(default=0, description="前回の税込価格(円)")
-    price_difference: Optional[int] = Field(default=0, description="前回比差分(円)")
-    status: Optional[str] = Field(default="据置", description="状態（値下げ/値上げ/据置/新規追加）")
+    price_tax_included: int = Field(description="税込価格(円)")
+    master_price: Optional[int] = Field(default=None, description="マスター価格(円)")
+    price_diff: Optional[int] = Field(default=None, description="差額(円): 税込価格 - マスター価格")
     quantity: int = Field(default=1, description="展示台数")
-    price_tax_excluded: int = Field(description="今回の税抜価格(円)")
+    price_tax_excluded: int = Field(description="税抜価格(円)")
     spec_notes: str = Field(default="", description="仕様・セールPOP等の特記事項")
     timestamp: str = Field(description="動画内時間（例: 01:23）")
 
@@ -58,19 +57,19 @@ class BikeSurveyAgentSystem:
         if video_file.state.name == "FAILED":
             raise RuntimeError("動画の処理に失敗しました。")
 
-        # 店舗マスターExcelの読み込み（指定があれば）
         master_context = ""
         if master_excel_path and os.path.exists(master_excel_path):
             print(f"📖 店舗マスターExcelを読み込み中: {master_excel_path}")
             df_master = pd.read_excel(master_excel_path) if master_excel_path.endswith(('.xlsx', '.xls')) else pd.read_csv(master_excel_path)
             master_json = df_master.head(300).to_json(orient="records", force_ascii=False)
             master_context = f"""
-            【店舗別商品マスター情報（前回調査または定番カタログ）】
+            【店舗マスターExcel情報】
             {master_json}
 
             【マスター照合ルール】
-            1. 動画に映るPOP・値札を、上記マスターと優先的に照合（名寄せ）してください。
-            2. 一致した商品は正式名称・型番を適用し、前回の価格と比較して previous_price_tax_included, price_difference, status ('値下げ' / '値上げ' / '据置' / '新規追加') を算出してください。
+            1. 動画に映るPOP・値札を、上記マスターと照合（名寄せ）してください。
+            2. 一致した商品は正式名称・型番を適用し、マスター記載の価格を master_price として取得してください。
+            3. price_diff（差額）は【売場税込価格 − マスター価格】を計算してください。該当なし時はnull。
             """
 
         print("⚡ [2/4] Gemini 3.7 Flash による自律構造化抽出を実行中...")
@@ -98,26 +97,24 @@ class BikeSurveyAgentSystem:
         print("📊 [3/4] データを整形・Excelファイルへ書き出し中...")
         result = SurveyResult.model_validate_json(response.text)
         
-        rows = [b.model_dump() for b in result.bikes]
+        rows = []
+        for b in result.bikes:
+            rows.append({
+                "カテゴリ": b.category or "",
+                "メーカー": b.maker or "",
+                "車種名・モデル名": b.model_name or "",
+                "型番/品番": b.model_code or "",
+                "年式": b.model_year or "不明",
+                "税込価格(円)": b.price_tax_included,
+                "マスター価格(円)": b.master_price if b.master_price is not None else "-",
+                "差額(円)": b.price_diff if b.price_diff is not None else "-",
+                "台数": b.quantity,
+                "税抜価格(円)": b.price_tax_excluded,
+                "特記事項・POP": b.spec_notes or "",
+                "確認時間": b.timestamp or ""
+            })
+
         df = pd.DataFrame(rows)
-        
-        # 列名設定
-        col_map = {
-            "category": "カテゴリ",
-            "maker": "メーカー",
-            "model_name": "車種名・モデル名",
-            "model_code": "型番/品番",
-            "model_year": "年式",
-            "price_tax_included": "今回税込価格(円)",
-            "previous_price_tax_included": "前回税込価格(円)",
-            "price_difference": "前回比差分(円)",
-            "status": "状態",
-            "quantity": "台数",
-            "price_tax_excluded": "今回税抜価格(円)",
-            "spec_notes": "特記事項・POP",
-            "timestamp": "確認時間"
-        }
-        df = df[[c for c in col_map.keys() if c in df.columns]].rename(columns=col_map)
 
         with pd.ExcelWriter(output_excel_path, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="調査結果")
