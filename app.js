@@ -134,6 +134,14 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (file.type.startsWith("video/") || file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i)) {
+        // 2GB（2,000MB）上限チェック
+        const MAX_SIZE_BYTES = 2000 * 1024 * 1024; // 2,000 MB
+        if (file.size > MAX_SIZE_BYTES) {
+          const sizeGb = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+          alert(`⚠️ 動画の容量オーバー警告:\n\n「${file.name}」の容量は ${sizeGb} GB あります。\n\nGoogle Gemini APIの上限（1本あたり最大2.0GB）を超えているため、このファイルは追加できません。\n\n【解決策】\n・プロジェクト内の「大容量動画を自動分割.bat」の上にこの動画をドロップして分割してください。\n・または、次回撮影時は1本あたり【5〜8分】で区切って撮影してください。`);
+          continue;
+        }
+
         // 重複除外
         if (!selectedVideoFiles.some(f => f.name === file.name && f.size === file.size)) {
           selectedVideoFiles.push(file);
@@ -144,8 +152,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (addedCount > 0) {
       renderVideoFilesList();
       updateStartButtonState();
-    } else {
-      alert("有効な動画ファイル（MP4 / MOV / WEBM）を選択してください。");
     }
   }
 
