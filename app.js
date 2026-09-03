@@ -14,7 +14,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const apiKeyBanner = document.getElementById("api-key-banner");
   const inputStoreName = document.getElementById("input-store-name");
   const inputSurveyDate = document.getElementById("input-survey-date");
-  const selectModel = document.getElementById("select-model");
 
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
@@ -354,9 +353,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Stage 2: 高精度Flashモデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック)
   // ========================================================
   async function executePrecisionOcrWithFallback(fileUri, segmentInfo, masterRecords, apiKey) {
-    // 優先順位: 選択モデル ➔ 3.8 ➔ 3.7 ➔ 3.6 ➔ 3.5
-    const preferredModel = selectModel.value || "gemini-3.8-flash";
-    const fallbackChain = Array.from(new Set([preferredModel, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]));
+    // Stage 2 完全自動フォールバックチェーン: 3.8 ➔ 3.7 ➔ 3.6 Flash
+    const fallbackChain = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
 
     let masterContext = "";
     if (masterRecords && masterRecords.length > 0) {
