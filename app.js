@@ -714,6 +714,14 @@ document.addEventListener("DOMContentLoaded", () => {
         })
       });
 
+      if (!response.ok) return { valid_segments: [], summary: "全編有効" };
+      const resJson = await response.json();
+      return JSON.parse(resJson.candidates[0].content.parts[0].text);
+    } catch (e) {
+      return { valid_segments: [], summary: "全編有効" };
+    }
+  }
+
   // --- Stage 1 (写真用): Flash-Lite による写真空間マッピング ＆ 写り込みトリアージ ---
   async function analyzePhotoMappingWithLite(fileItems, apiKey) {
     if (!fileItems || fileItems.length <= 1) {
