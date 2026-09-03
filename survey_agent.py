@@ -1,6 +1,6 @@
 """
 自転車競合店調査 AI - Python 自律マルチエージェントスクリプト
-(店舗マスター照合 ＆ 差額算出版)
+(店舗マスター照合 ＆ マスター外自動検出対応版)
 """
 import asyncio
 import os
@@ -22,6 +22,7 @@ class BikeRecord(BaseModel):
     price_tax_included: int = Field(description="税込価格(円)")
     master_price: Optional[int] = Field(default=None, description="マスター価格(円)")
     price_diff: Optional[int] = Field(default=None, description="差額(円): 税込価格 - マスター価格")
+    is_master_match: Optional[bool] = Field(default=False, description="マスターに存在したか")
     quantity: int = Field(default=1, description="展示台数")
     price_tax_excluded: int = Field(description="税抜価格(円)")
     spec_notes: str = Field(default="", description="仕様・セールPOP等の特記事項")
@@ -66,10 +67,10 @@ class BikeSurveyAgentSystem:
             【店舗マスターExcel情報】
             {master_json}
 
-            【マスター照合ルール】
-            1. 動画に映るPOP・値札を、上記マスターと照合（名寄せ）してください。
-            2. 一致した商品は正式名称・型番を適用し、マスター記載の価格を master_price として取得してください。
-            3. price_diff（差額）は【売場税込価格 − マスター価格】を計算してください。該当なし時はnull。
+            【マスター照合およびマスター外ルール】
+            1. 動画に映るPOP・値札を、上記マスターと優先的に照合してください。
+            2. 一致した商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
+            3. マスターにない商品（型落ち処分、未登録品等）: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出してください。
             """
 
         print("⚡ [2/4] Gemini 3.7 Flash による自律構造化抽出を実行中...")
@@ -99,6 +100,7 @@ class BikeSurveyAgentSystem:
         
         rows = []
         for b in result.bikes:
+            is_match = b.is_master_match is True
             rows.append({
                 "カテゴリ": b.category or "",
                 "メーカー": b.maker or "",
@@ -106,8 +108,8 @@ class BikeSurveyAgentSystem:
                 "型番/品番": b.model_code or "",
                 "年式": b.model_year or "不明",
                 "税込価格(円)": b.price_tax_included,
-                "マスター価格(円)": b.master_price if b.master_price is not None else "-",
-                "差額(円)": b.price_diff if b.price_diff is not None else "-",
+                "マスター価格(円)": b.master_price if is_match and b.master_price is not None else "-",
+                "差額(円)": b.price_diff if is_match and b.price_diff is not None else "-",
                 "台数": b.quantity,
                 "税抜価格(円)": b.price_tax_excluded,
                 "特記事項・POP": b.spec_notes or "",

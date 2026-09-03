@@ -1,6 +1,6 @@
 // ========================================================
 // 自転車競合店調査 AI - メインアプリケーションロジック
-// (店舗マスター照合 ＆ 差額算出版)
+// (店舗マスター照合 ＆ マスター外自動検出対応版)
 // ========================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -48,6 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const resultMetaInfo = document.getElementById("result-meta-info");
   const summaryTotalQty = document.getElementById("summary-total-qty");
   const summarySkuCount = document.getElementById("summary-sku-count");
+  const summaryUnmatchedCount = document.getElementById("summary-unmatched-count");
   const summaryEbikeRatio = document.getElementById("summary-ebike-ratio");
   const summaryAvgPrice = document.getElementById("summary-avg-price");
 
@@ -56,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- 状態変数 ---
   let selectedVideoFile = null;
-  let masterDataRecords = null; // 店舗マスターExcelの行配列
+  let masterDataRecords = null;
   let currentResults = [];
 
   // --- 初期化 ---
@@ -86,32 +87,17 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStartButtonState();
   });
 
-  // ========================================================
-  // 1. 動画ファイルのドラッグ＆ドロップ処理
-  // ========================================================
+  // 1. 動画ファイル選択
   dropZone.addEventListener("click", () => fileInput.click());
-
-  dropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-  });
-
-  dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("dragover");
-  });
-
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleVideoSelected(e.dataTransfer.files[0]);
-    }
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleVideoSelected(e.dataTransfer.files[0]);
   });
-
   fileInput.addEventListener("change", (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      handleVideoSelected(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files.length > 0) handleVideoSelected(e.target.files[0]);
   });
 
   function handleVideoSelected(file) {
@@ -126,32 +112,17 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStartButtonState();
   }
 
-  // ========================================================
-  // 2. 店舗マスターExcelのドラッグ＆ドロップ処理
-  // ========================================================
+  // 2. 店舗マスターExcel選択
   masterDropZone.addEventListener("click", () => masterFileInput.click());
-
-  masterDropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    masterDropZone.classList.add("border-emerald-500", "bg-emerald-50/50");
-  });
-
-  masterDropZone.addEventListener("dragleave", () => {
-    masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50");
-  });
-
+  masterDropZone.addEventListener("dragover", (e) => { e.preventDefault(); masterDropZone.classList.add("border-emerald-500", "bg-emerald-50/50"); });
+  masterDropZone.addEventListener("dragleave", () => masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50"));
   masterDropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50");
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleMasterFileSelected(e.dataTransfer.files[0]);
-    }
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleMasterFileSelected(e.dataTransfer.files[0]);
   });
-
   masterFileInput.addEventListener("change", (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      handleMasterFileSelected(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files.length > 0) handleMasterFileSelected(e.target.files[0]);
   });
 
   async function handleMasterFileSelected(file) {
@@ -159,7 +130,6 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("Excelファイル（.xlsx / .xls）または CSVファイルを選択してください。");
       return;
     }
-
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: "array" });
@@ -208,19 +178,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // ========================================================
   // 3. 解析実行パイプライン
-  // ========================================================
   btnStartAnalysis.addEventListener("click", async () => {
     const apiKey = inputApiKey.value.trim() || localStorage.getItem("gemini_api_key");
-    if (!apiKey) {
-      alert("APIキーを入力してください。");
-      return;
-    }
-    if (!selectedVideoFile) {
-      alert("動画ファイルを選択してください。");
-      return;
-    }
+    if (!apiKey) { alert("APIキーを入力してください。"); return; }
+    if (!selectedVideoFile) { alert("動画ファイルを選択してください。"); return; }
 
     btnStartAnalysis.disabled = true;
     progressCard.classList.remove("hidden");
@@ -229,26 +191,21 @@ document.addEventListener("DOMContentLoaded", () => {
     updateProgress(5, "準備中...", "動画とマスター設定の検証中", "解析パイプラインを開始しました");
 
     try {
-      // STEP 1: 動画を Google Gemini Files API へアップロード
       updateProgress(15, "動画をアップロード中...", `ファイルサイズ: ${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)}MB`, "Gemini Files API への高速アップロード開始...");
-      
       const fileData = await uploadToGeminiFilesApi(selectedVideoFile, apiKey);
       updateProgress(60, "クラウド処理完了待機中...", "Google側で動画のインデックスを作成しています", `アップロード完了 (File URI: ${fileData.file.uri})`);
 
-      // STEP 2: 動画がACTIVE状態になるまで待機
       await waitForFileActive(fileData.file.name, apiKey);
       
       const hasMaster = masterDataRecords && masterDataRecords.length > 0;
-      const masterLog = hasMaster ? `マスター照合モード（${masterDataRecords.length} SKUのマスターと突合中）` : "通常モード（新規全抽出）";
+      const masterLog = hasMaster ? `マスター照合モード（${masterDataRecords.length} SKUのマスターと突合、未登録は画像から自動抽出）` : "通常モード（画像から全抽出）";
       updateProgress(75, "AIマルチモーダル解析中...", "POP文字の認識とマスター照合を実行中...", `モデル呼び出し中: ${masterLog}`);
 
-      // STEP 3: Gemini 3.7 Flash による構造化抽出
       const modelName = selectModel.value || "gemini-3.7-flash";
       const surveyData = await generateSurveyData(fileData.file.uri, modelName, apiKey, masterDataRecords);
 
       updateProgress(95, "結果集計中...", "差額計算とデータ整形中", `解析完了: 合計 ${surveyData.bikes ? surveyData.bikes.length : 0} 件のSKUを検出`);
 
-      // STEP 4: 結果の描画
       currentResults = surveyData.bikes || [];
       renderResults(currentResults, hasMaster);
 
@@ -267,7 +224,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // --- Files API アップロード関数 ---
   async function uploadToGeminiFilesApi(file, apiKey) {
     const initUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
     const initResponse = await fetch(initUrl, {
@@ -308,7 +264,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return await uploadResponse.json();
   }
 
-  // --- ACTIVE待機関数 ---
   async function waitForFileActive(fileName, apiKey) {
     const checkUrl = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`;
     for (let i = 0; i < 60; i++) {
@@ -323,7 +278,6 @@ document.addEventListener("DOMContentLoaded", () => {
     throw new Error("動画処理の待機時間がタイムアウトしました。");
   }
 
-  // --- Gemini 構造化生成リクエスト ---
   async function generateSurveyData(fileUri, model, apiKey, masterRecords) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -334,11 +288,18 @@ document.addEventListener("DOMContentLoaded", () => {
       【店舗マスターExcel情報】
       ${JSON.stringify(sample)}
       
-      【マスター照合ルール】
-      1. 動画内に映るPOP・値札を、上記マスターの商品（車種名・型番）と照合（名寄せ）してください。
-      2. 一致した商品は正式名称を適用し、マスター記載の価格を master_price として取得してください。
-      3. price_diff（差額）は【売場税込価格 − マスター価格】を計算してください（例: 売場119,800円、マスター128,000円なら -8200）。
-      4. マスターに該当商品がない場合は、master_price と price_diff は null（または0）としてください。
+      【マスター照合およびマスター外ルール】
+      1. 動画内に映るPOP・値札を、上記マスターの商品（車種名・型番）と優先的に照合してください。
+      2. 一致した商品:
+         - is_master_match: true
+         - マスター記載の価格を master_price に設定。
+         - price_diff（差額）= 売場税込価格 − マスター価格。
+      3. マスターに存在しない商品（型落ち処分、店舗限定品、未掲載PB車等）:
+         - Web検索等は行わず、動画・POPに書かれている文字情報をそのまま正確に抽出してください。
+         - is_master_match: false
+         - master_price: null
+         - price_diff: null
+         - spec_notes に「【マスター外】」と付記してください。
       `;
     }
 
@@ -356,11 +317,12 @@ document.addEventListener("DOMContentLoaded", () => {
     - model_code: 型番/品番（POPに記載があれば）
     - model_year: 年式（例: 2024年, 2023年型落ち, 不明）
     - price_tax_included: 税込価格（円・数値）
-    - master_price: マスター価格（マスターExcelに価格がある場合。ない場合はnull）
-    - price_diff: 差額（税込価格 − マスター価格。マスター価格がない場合はnull）
+    - master_price: マスター価格（マスターに存在する場合のみ数値、ない場合はnull）
+    - price_diff: 差額（税込価格 − マスター価格。ない場合はnull）
+    - is_master_match: マスターに存在したかどうかのブール値（true/false）
     - quantity: 展示台数（同モデル・同価格の並び台数）
     - price_tax_excluded: 税抜価格（円・数値）
-    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
+    - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、店頭特価等）
     - timestamp: 動画内で出現した時間（例: 01:23）
 
     【ルール】
@@ -386,6 +348,7 @@ document.addEventListener("DOMContentLoaded", () => {
               price_tax_included: { type: "INTEGER" },
               master_price: { type: "INTEGER" },
               price_diff: { type: "INTEGER" },
+              is_master_match: { type: "BOOLEAN" },
               quantity: { type: "INTEGER" },
               price_tax_excluded: { type: "INTEGER" },
               spec_notes: { type: "STRING" },
@@ -431,14 +394,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return JSON.parse(candidate.content.parts[0].text);
   }
 
-  // ========================================================
-  // 4. 解析結果の描画（「差額」表示対応）
-  // ========================================================
+  // 4. 解析結果の描画
   function renderResults(bikes, hasMaster) {
     tableBody.innerHTML = "";
     let totalQty = 0;
     let totalPrice = 0;
     let ebikeQty = 0;
+    let unmatchedCount = 0;
 
     if (hasMaster) {
       badgeMasterStatus.classList.remove("hidden");
@@ -456,14 +418,19 @@ document.addEventListener("DOMContentLoaded", () => {
         ebikeQty += qty;
       }
 
-      // マスター価格の表示
-      const mPrice = (bike.master_price !== null && bike.master_price !== undefined && bike.master_price > 0)
+      const isMatch = bike.is_master_match === true;
+      if (!isMatch && hasMaster) {
+        unmatchedCount += 1;
+      }
+
+      // マスター価格
+      const mPrice = (isMatch && bike.master_price !== null && bike.master_price !== undefined && bike.master_price > 0)
         ? `¥${parseInt(bike.master_price).toLocaleString()}`
         : "-";
 
-      // 差額の表示
+      // 差額
       let diffHtml = "-";
-      if (bike.price_diff !== null && bike.price_diff !== undefined && mPrice !== "-") {
+      if (isMatch && bike.price_diff !== null && bike.price_diff !== undefined) {
         const diff = parseInt(bike.price_diff);
         if (diff < 0) {
           diffHtml = `<span class="text-rose-600 font-bold font-mono">¥${diff.toLocaleString()}</span>`;
@@ -474,11 +441,17 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      // 車種名の装飾（マスター外の場合はバッジ付与）
+      let modelHtml = escapeHtml(bike.model_name || "-");
+      if (hasMaster && !isMatch) {
+        modelHtml += ` <span class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold bg-amber-100 text-amber-800 rounded">マスター外</span>`;
+      }
+
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td class="px-3 py-2 whitespace-nowrap"><span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700">${escapeHtml(bike.category || "一般")}</span></td>
         <td class="px-3 py-2 whitespace-nowrap font-medium text-slate-900">${escapeHtml(bike.maker || "-")}</td>
-        <td class="px-3 py-2 font-semibold text-indigo-950">${escapeHtml(bike.model_name || "-")}</td>
+        <td class="px-3 py-2 font-semibold text-indigo-950">${modelHtml}</td>
         <td class="px-3 py-2 font-mono text-slate-500 text-[11px]">${escapeHtml(bike.model_code || "-")}</td>
         <td class="px-3 py-2 whitespace-nowrap text-slate-600">${escapeHtml(bike.model_year || "不明")}</td>
         <td class="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">¥${priceInc.toLocaleString()}</td>
@@ -494,6 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
     badgeTotalCount.textContent = `${totalQty} 台`;
     summaryTotalQty.textContent = `${totalQty} 台`;
     summarySkuCount.textContent = `${bikes.length} SKU`;
+    summaryUnmatchedCount.textContent = hasMaster ? `${unmatchedCount} 件` : "-";
     summaryEbikeRatio.textContent = totalQty > 0 ? `${Math.round((ebikeQty / totalQty) * 100)} %` : "0 %";
     summaryAvgPrice.textContent = totalQty > 0 ? `¥${Math.round(totalPrice / totalQty).toLocaleString()}` : "¥0";
 
@@ -502,9 +476,7 @@ document.addEventListener("DOMContentLoaded", () => {
     resultMetaInfo.textContent = `店舗名: ${storeName} | 調査日: ${surveyDate} | 合計展示台数: ${totalQty}台`;
   }
 
-  // ========================================================
   // 5. Excel (.xlsx) ダウンロード機能
-  // ========================================================
   btnExportExcel.addEventListener("click", () => {
     if (!currentResults || currentResults.length === 0) {
       alert("エクスポートするデータがありません。");
@@ -515,7 +487,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const surveyDate = inputSurveyDate.value || today;
 
     const excelRows = currentResults.map(b => {
-      const hasMPrice = b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      const isMatch = b.is_master_match === true;
+      const hasMPrice = isMatch && b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
       return {
         "カテゴリ": b.category || "",
         "メーカー": b.maker || "",
@@ -535,18 +508,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const ws = XLSX.utils.json_to_sheet(excelRows);
 
     ws["!cols"] = [
-      { wch: 16 }, // カテゴリ
-      { wch: 16 }, // メーカー
-      { wch: 26 }, // 車種名
-      { wch: 16 }, // 型番
-      { wch: 10 }, // 年式
-      { wch: 15 }, // 税込価格
-      { wch: 16 }, // マスター価格
-      { wch: 14 }, // 差額
-      { wch: 8 },  // 台数
-      { wch: 15 }, // 税抜価格
-      { wch: 24 }, // 特記事項
-      { wch: 12 }  // 確認時間
+      { wch: 16 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 10 },
+      { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 8 },  { wch: 15 },
+      { wch: 26 }, { wch: 12 }
     ];
 
     const wb = XLSX.utils.book_new();
@@ -556,7 +520,7 @@ document.addEventListener("DOMContentLoaded", () => {
     XLSX.writeFile(wb, fileName);
   });
 
-  // --- CSV エクスポート ---
+  // 6. CSV エクスポート
   btnExportCsv.addEventListener("click", () => {
     if (!currentResults || currentResults.length === 0) {
       alert("エクスポートするデータがありません。");
@@ -568,7 +532,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税込価格", "マスター価格", "差額", "台数", "税抜価格", "特記事項・POP", "確認時間"];
     const rows = currentResults.map(b => {
-      const hasMPrice = b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      const isMatch = b.is_master_match === true;
+      const hasMPrice = isMatch && b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
       return [
         `"${(b.category || "").replace(/"/g, '""')}"`,
         `"${(b.maker || "").replace(/"/g, '""')}"`,
