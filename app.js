@@ -1,6 +1,6 @@
 // ========================================================
 // 自転車競合店調査 AI - メインアプリケーションロジック
-// (店舗マスター照合 ＆ マスター外自動検出対応版)
+// (2段階自律パイプライン: Liteトリアージ ➔ 3.8/3.7/3.6 Flash精密読取)
 // ========================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -16,7 +16,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const inputSurveyDate = document.getElementById("input-survey-date");
   const selectModel = document.getElementById("select-model");
 
-  // 動画アップロード要素
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
   const selectedFileInfo = document.getElementById("selected-file-info");
@@ -24,7 +23,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const fileSizeDisplay = document.getElementById("file-size");
   const btnStartAnalysis = document.getElementById("btn-start-analysis");
 
-  // 店舗マスターExcelアップロード要素
   const masterDropZone = document.getElementById("master-drop-zone");
   const masterFileInput = document.getElementById("master-file-input");
   const selectedMasterInfo = document.getElementById("selected-master-info");
@@ -33,7 +31,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearMaster = document.getElementById("btn-clear-master");
   const badgeMasterStatus = document.getElementById("badge-master-status");
 
-  // 進捗要素
   const progressCard = document.getElementById("progress-card");
   const progressTitle = document.getElementById("progress-title");
   const progressDesc = document.getElementById("progress-desc");
@@ -41,7 +38,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const progressPercent = document.getElementById("progress-percent");
   const progressLog = document.getElementById("progress-log");
 
-  // 結果要素
   const resultCard = document.getElementById("result-card");
   const tableBody = document.getElementById("table-body");
   const badgeTotalCount = document.getElementById("badge-total-count");
@@ -64,7 +60,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   inputSurveyDate.value = today;
 
-  // --- 初期化: APIキーの自動読み込み（config.js 優先、なければ localStorage） ---
   let activeApiKey = "";
   if (typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY.trim() !== "") {
     activeApiKey = CONFIG.GEMINI_API_KEY.trim();
@@ -99,7 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStartButtonState();
   });
 
-  // 1. 動画ファイル選択
+  // 1. 動画ドラッグ＆ドロップ
   dropZone.addEventListener("click", () => fileInput.click());
   dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
   dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
@@ -124,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStartButtonState();
   }
 
-  // 2. 店舗マスターExcel選択
+  // 2. 店舗マスターExcelドラッグ＆ドロップ
   masterDropZone.addEventListener("click", () => masterFileInput.click());
   masterDropZone.addEventListener("dragover", (e) => { e.preventDefault(); masterDropZone.classList.add("border-emerald-500", "bg-emerald-50/50"); });
   masterDropZone.addEventListener("dragleave", () => masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50"));
@@ -196,7 +191,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 3. 解析実行パイプライン
+  // ========================================================
+  // 3. 解析実行パイプライン（2段階自律ルーティング）
+  // ========================================================
   btnStartAnalysis.addEventListener("click", async () => {
     const apiKey = getEffectiveApiKey();
     if (!apiKey) { alert("APIキーを入力してください。"); return; }
@@ -206,24 +203,32 @@ document.addEventListener("DOMContentLoaded", () => {
     progressCard.classList.remove("hidden");
     resultCard.classList.add("hidden");
     progressLog.innerHTML = "";
-    updateProgress(5, "準備中...", "動画とマスター設定の検証中", "解析パイプラインを開始しました");
+    updateProgress(5, "準備中...", "動画の検証とパイプライン初期化", "2段階自律解析パイプラインを開始しました");
 
     try {
-      updateProgress(15, "動画をアップロード中...", `ファイルサイズ: ${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)}MB`, "Gemini Files API への高速アップロード開始...");
+      // --- STEP 1: 動画を Google Gemini Files API へアップロード ---
+      updateProgress(15, "動画をアップロード中...", `ファイルサイズ: ${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)}MB`, "Gemini Files API へ動画送信中...");
       const fileData = await uploadToGeminiFilesApi(selectedVideoFile, apiKey);
-      updateProgress(60, "クラウド処理完了待機中...", "Google側で動画のインデックスを作成しています", `アップロード完了 (File URI: ${fileData.file.uri})`);
+      updateProgress(50, "クラウド処理完了待機中...", "Google側で動画のインデックスを作成しています", `アップロード完了 (File URI: ${fileData.file.uri})`);
 
       await waitForFileActive(fileData.file.name, apiKey);
       
+      // --- STEP 2: [Stage 1] Gemini 3.5 Flash-Lite によるトリアージ（有効区間の事前判別）---
+      updateProgress(65, "【ステージ1】Flash-Liteによる有効区間判別中...", "商品POPがある有効区間と無駄な移動時間を判別しています", "Liteモデル (1日500回枠) で動画全体のトリアージを実行中...");
+      
+      const segmentAnalysis = await analyzeValidSegmentsWithLite(fileData.file.uri, apiKey);
+      const validSummary = segmentAnalysis.summary || "全区間解析";
+      updateProgress(78, "【ステージ1完了】有効区間を特定", `特定区間: ${validSummary}`, `Lite判別完了: 有効区間情報を受信`);
+
+      // --- STEP 3: [Stage 2] Gemini 3.8 / 3.7 / 3.6 Flash による精密読取 ＆ マスター差額算出 ---
       const hasMaster = masterDataRecords && masterDataRecords.length > 0;
-      const masterLog = hasMaster ? `マスター照合モード（${masterDataRecords.length} SKUのマスターと突合、未登録は画像から自動抽出）` : "通常モード（画像から全抽出）";
-      updateProgress(75, "AIマルチモーダル解析中...", "POP文字の認識とマスター照合を実行中...", `モデル呼び出し中: ${masterLog}`);
+      updateProgress(85, "【ステージ2】Flash高精度モデルによる精密読取...", "POP文字・型番・年式・価格の抽出とマスター差額を算出中...", "高精度Flashモデル (3.8 ➔ 3.7 ➔ 3.6 自動フォールバック) で精密解析中...");
 
-      const modelName = selectModel.value || "gemini-3.7-flash";
-      const surveyData = await generateSurveyData(fileData.file.uri, modelName, apiKey, masterDataRecords);
+      const surveyData = await executePrecisionOcrWithFallback(fileData.file.uri, segmentAnalysis, masterDataRecords, apiKey);
 
-      updateProgress(95, "結果集計中...", "差額計算とデータ整形中", `解析完了: 合計 ${surveyData.bikes ? surveyData.bikes.length : 0} 件のSKUを検出`);
+      updateProgress(96, "結果集計中...", "名寄せ・サマリーの整形中", `解析完了: 合計 ${surveyData.bikes ? surveyData.bikes.length : 0} 件のSKUを検出`);
 
+      // --- STEP 4: 結果描画 ---
       currentResults = surveyData.bikes || [];
       renderResults(currentResults, hasMaster);
 
@@ -242,6 +247,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // --- Files API アップロード ---
   async function uploadToGeminiFilesApi(file, apiKey) {
     const initUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
     const initResponse = await fetch(initUrl, {
@@ -282,6 +288,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return await uploadResponse.json();
   }
 
+  // --- ACTIVE待機 ---
   async function waitForFileActive(fileName, apiKey) {
     const checkUrl = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`;
     for (let i = 0; i < 60; i++) {
@@ -296,34 +303,82 @@ document.addEventListener("DOMContentLoaded", () => {
     throw new Error("動画処理の待機時間がタイムアウトしました。");
   }
 
-  async function generateSurveyData(fileUri, model, apiKey, masterRecords) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // ========================================================
+  // Stage 1: Flash-Lite によるトリアージ（有効区間の判別）
+  // ========================================================
+  async function analyzeValidSegmentsWithLite(fileUri, apiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+    
+    const prompt = `
+    この動画は自転車売場の歩き撮り映像です。
+    動画全体をざっと確認し、以下の2点を抽出してください：
+    1. 自転車や値札・POPが明確に映っている【有効な時間区間（タイムスタンプ）】のリスト（例: "00:15 - 00:45", "01:20 - 02:05"...）
+    2. 単なる移動、ブレ、床や天井のみが映っている無効な区間を省いたサマリー
+    3. おおよその展示台数規模
+    `;
+
+    const schema = {
+      type: "OBJECT",
+      properties: {
+        valid_segments: { type: "ARRAY", items: { type: "STRING" } },
+        summary: { type: "STRING" },
+        estimated_bikes: { type: "INTEGER" }
+      },
+      required: ["valid_segments", "summary"]
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: "video/mp4", file_uri: fileUri } }] }],
+          generationConfig: { responseMimeType: "application/json", responseSchema: schema }
+        })
+      });
+
+      if (!response.ok) {
+        console.warn("Liteモデルによる事前判別をスキップして直接精密読取へ進みます。");
+        return { valid_segments: [], summary: "全編有効" };
+      }
+
+      const resJson = await response.json();
+      return JSON.parse(resJson.candidates[0].content.parts[0].text);
+    } catch (e) {
+      console.warn("Liteステージ例外。スキップして続行します:", e);
+      return { valid_segments: [], summary: "全編有効" };
+    }
+  }
+
+  // ========================================================
+  // Stage 2: 高精度Flashモデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック)
+  // ========================================================
+  async function executePrecisionOcrWithFallback(fileUri, segmentInfo, masterRecords, apiKey) {
+    // 優先順位: 選択モデル ➔ 3.8 ➔ 3.7 ➔ 3.6 ➔ 3.5
+    const preferredModel = selectModel.value || "gemini-3.8-flash";
+    const fallbackChain = Array.from(new Set([preferredModel, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]));
 
     let masterContext = "";
     if (masterRecords && masterRecords.length > 0) {
-      const sample = masterRecords.slice(0, 300);
       masterContext = `
       【店舗マスターExcel情報】
-      ${JSON.stringify(sample)}
+      ${JSON.stringify(masterRecords.slice(0, 300))}
       
-      【マスター照合およびマスター外ルール】
-      1. 動画内に映るPOP・値札を、上記マスターの商品（車種名・型番）と優先的に照合してください。
-      2. 一致した商品:
-         - is_master_match: true
-         - マスター記載の価格を master_price に設定。
-         - price_diff（差額）= 売場税込価格 − マスター価格。
-      3. マスターに存在しない商品（型落ち処分、店舗限定品、未掲載PB車等）:
-         - Web検索等は行わず、動画・POPに書かれている文字情報をそのまま正確に抽出してください。
-         - is_master_match: false
-         - master_price: null
-         - price_diff: null
-         - spec_notes に「【マスター外】」と付記してください。
+      【マスター照合ルール】
+      1. 動画内に映るPOPを、上記マスターと照合してください。
+      2. 一致商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
+      3. マスター外商品: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出。
       `;
     }
+
+    const segmentsHint = (segmentInfo.valid_segments && segmentInfo.valid_segments.length > 0)
+      ? `【有効区間情報】Liteモデルにより以下の区間にPOPが集中していることが判明しています: ${segmentInfo.valid_segments.join(", ")}。これらの区間に特に注視して精密に文字認識してください。`
+      : "";
 
     const prompt = `
     あなたは自転車小売業の競合店舗調査の専門エキスパートです。
     この動画は自転車売場の通路を歩いて撮影したものです。
+    ${segmentsHint}
     動画に映っているすべての自転車の【値札・プライスカードPOP】を時系列で読み取り、
     重複を排除して全商品の詳細情報を漏れなく抽出してください。
     ${masterContext}
@@ -379,37 +434,42 @@ document.addEventListener("DOMContentLoaded", () => {
       required: ["bikes"]
     };
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { file_data: { mime_type: "video/mp4", file_uri: fileUri } }
-            ]
+    let lastError = null;
+
+    for (const model of fallbackChain) {
+      try {
+        console.log(`モデル ${model} で精密解析を実行中...`);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }, { file_data: { mime_type: "video/mp4", file_uri: fileUri } }] }],
+            generationConfig: { responseMimeType: "application/json", responseSchema: responseSchema }
+          })
+        });
+
+        if (response.ok) {
+          const resJson = await response.json();
+          const candidate = resJson.candidates?.[0];
+          if (candidate && candidate.content?.parts?.[0]?.text) {
+            console.log(`✓ モデル ${model} で解析成功！`);
+            return JSON.parse(candidate.content.parts[0].text);
           }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema
         }
-      })
-    });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`AI解析エラー (${response.status}): ${errText}`);
+        const errText = await response.text();
+        console.warn(`モデル ${model} でエラー (${response.status}): ${errText}。次のモデルへフォールバックします...`);
+        lastError = new Error(`モデル ${model} エラー: ${errText}`);
+
+      } catch (err) {
+        console.warn(`モデル ${model} 呼び出し例外: ${err.message}。次のモデルへフォールバックします...`);
+        lastError = err;
+      }
     }
 
-    const resJson = await response.json();
-    const candidate = resJson.candidates?.[0];
-    if (!candidate || !candidate.content?.parts?.[0]?.text) {
-      throw new Error("AIから有効な解析データが返却されませんでした。");
-    }
-
-    return JSON.parse(candidate.content.parts[0].text);
+    throw lastError || new Error("すべてのFlashモデルでの解析に失敗しました。");
   }
 
   // 4. 解析結果の描画
@@ -441,12 +501,10 @@ document.addEventListener("DOMContentLoaded", () => {
         unmatchedCount += 1;
       }
 
-      // マスター価格
       const mPrice = (isMatch && bike.master_price !== null && bike.master_price !== undefined && bike.master_price > 0)
         ? `¥${parseInt(bike.master_price).toLocaleString()}`
         : "-";
 
-      // 差額
       let diffHtml = "-";
       if (isMatch && bike.price_diff !== null && bike.price_diff !== undefined) {
         const diff = parseInt(bike.price_diff);
@@ -459,7 +517,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // 車種名の装飾（マスター外の場合はバッジ付与）
       let modelHtml = escapeHtml(bike.model_name || "-");
       if (hasMaster && !isMatch) {
         modelHtml += ` <span class="ml-1.5 px-1.5 py-0.5 text-[9px] font-bold bg-amber-100 text-amber-800 rounded">マスター外</span>`;

@@ -1,6 +1,6 @@
 """
 自転車競合店調査 AI - Python 自律マルチエージェントスクリプト
-(店舗マスター照合 ＆ マスター外自動検出対応版)
+(2段階自律パイプライン: Liteトリアージ ➔ 3.8/3.7/3.6 Flash精密読取)
 """
 import asyncio
 import os
@@ -33,6 +33,10 @@ class SurveyResult(BaseModel):
     survey_date: Optional[str] = Field(default="")
     bikes: List[BikeRecord] = Field(default_factory=list)
 
+class LiteSegmentResult(BaseModel):
+    valid_segments: List[str] = Field(default_factory=list, description="POPや自転車が映っている有効区間")
+    summary: str = Field(default="", description="有効区間の要約")
+
 class BikeSurveyAgentSystem:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -47,7 +51,7 @@ class BikeSurveyAgentSystem:
         store_name: str = "競合店舗",
         master_excel_path: Optional[str] = None
     ):
-        print(f"🎬 [1/4] 動画をアップロード中: {video_path}")
+        print(f"🎬 [1/5] 動画をアップロード中: {video_path}")
         video_file = self.client.files.upload(file=video_path)
         
         while video_file.state.name == "PROCESSING":
@@ -58,6 +62,26 @@ class BikeSurveyAgentSystem:
         if video_file.state.name == "FAILED":
             raise RuntimeError("動画の処理に失敗しました。")
 
+        # --- Stage 1: Flash-Lite によるトリアージ（有効区間の事前判別）---
+        print("⚡ [2/5] 【Stage 1】Gemini 3.5 Flash-Lite (1日500回枠) による有効区間のトリアージを実行中...")
+        lite_prompt = """
+        この動画から、自転車や値札・POPが明確に映っている有効な時間区間（例: "00:15 - 00:45", "01:20 - 02:05"...）を特定し、
+        移動時間やブレなどの無効区間を除外したサマリーを作成してください。
+        """
+        try:
+            lite_res = self.client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=[lite_prompt, video_file],
+                config={"response_mime_type": "application/json", "response_schema": LiteSegmentResult}
+            )
+            segment_data = LiteSegmentResult.model_validate_json(lite_res.text)
+            segments_hint = f"有効区間: {', '.join(segment_data.valid_segments)}"
+            print(f"✓ 有効区間を特定: {segments_hint}")
+        except Exception as e:
+            print(f"Liteステージはスキップし全編精密読取へ進みます: {e}")
+            segments_hint = "全編有効"
+
+        # --- Stage 2: マスター情報の準備 ---
         master_context = ""
         if master_excel_path and os.path.exists(master_excel_path):
             print(f"📖 店舗マスターExcelを読み込み中: {master_excel_path}")
@@ -69,14 +93,16 @@ class BikeSurveyAgentSystem:
 
             【マスター照合およびマスター外ルール】
             1. 動画に映るPOP・値札を、上記マスターと優先的に照合してください。
-            2. 一致した商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
-            3. マスターにない商品（型落ち処分、未登録品等）: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出してください。
+            2. 一致商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
+            3. マスターにない商品（型落ち処分、未登録品等）: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出。
             """
 
-        print("⚡ [2/4] Gemini 3.7 Flash による自律構造化抽出を実行中...")
-        prompt = f"""
+        # --- Stage 3: 高精度 Flash モデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック) による精密読取 ---
+        print("🔍 [3/5] 【Stage 2】高精度Flashモデル (Gemini 3.8/3.7/3.6) による精密OCR・差額照合を実行中...")
+        precision_prompt = f"""
         あなたは自転車小売業の競合店舗調査の専門エキスパートです。
         店舗名: {store_name}
+        【Liteによる有効区間情報】: {segments_hint}。この区間に特に注視してください。
         動画に映っているすべての自転車のPOP・値札を時系列で認識し、
         重複を排除して全商品の詳細情報を漏れなく抽出してください。
         {master_context}
@@ -86,20 +112,28 @@ class BikeSurveyAgentSystem:
         2. 各車両の動画内タイムスタンプ（例: 01:23）を必ず記録してください。
         """
 
-        response = self.client.models.generate_content(
-            model="gemini-3.7-flash",
-            contents=[prompt, video_file],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": SurveyResult,
-            }
-        )
+        survey_res = None
+        for model in ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]:
+            try:
+                print(f"モデル {model} を呼び出し中...")
+                res = self.client.models.generate_content(
+                    model=model,
+                    contents=[precision_prompt, video_file],
+                    config={"response_mime_type": "application/json", "response_schema": SurveyResult}
+                )
+                survey_res = SurveyResult.model_validate_json(res.text)
+                print(f"✓ モデル {model} で抽出成功！")
+                break
+            except Exception as ex:
+                print(f"モデル {model} 失敗 ({ex})。次のモデルへフォールバックします...")
 
-        print("📊 [3/4] データを整形・Excelファイルへ書き出し中...")
-        result = SurveyResult.model_validate_json(response.text)
-        
+        if not survey_res:
+            raise RuntimeError("すべてのFlashモデルでの解析に失敗しました。")
+
+        # --- Stage 4: Excel整形・出力 ---
+        print("📊 [4/5] データを整形・Excelファイルへ書き出し中...")
         rows = []
-        for b in result.bikes:
+        for b in survey_res.bikes:
             is_match = b.is_master_match is True
             rows.append({
                 "カテゴリ": b.category or "",
@@ -126,7 +160,7 @@ class BikeSurveyAgentSystem:
                 col_letter = col[0].column_letter
                 worksheet.column_dimensions[col_letter].width = max(max_len + 3, 11)
 
-        print(f"🎉 [4/4] 完了！ Excelを出力しました: {output_excel_path}")
+        print(f"🎉 [5/5] 完了！ Excelを出力しました: {output_excel_path}")
         print(f"合計展示台数: {df['台数'].sum()} 台 (検出SKU数: {len(df)})")
 
 if __name__ == "__main__":
