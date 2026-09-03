@@ -843,7 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       【マスター照合ルール】
       1. POPを上記マスターと照合してください。
-      2. 一致商品: is_master_match=true, master_price=マスター価格, price_diff=税込 - マスター価格
+      2. 一致商品: is_master_match=true, master_price=マスター税抜価格, price_diff=売場税抜価格 - マスター税抜価格
       3. マスター外商品: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出。
       `;
     }
@@ -873,6 +873,11 @@ document.addEventListener("DOMContentLoaded", () => {
     あなたは自転車小売業の競合店舗調査の専門エキスパートです。
     この${mediaLabel}に映っているすべての自転車の【値札・プライスカードPOP】を読み取り、
     全商品の詳細情報を漏れなく抽出してください。
+    
+    ★【重要：価格表記の基本方針】
+    競合調査の実務基準として【税抜価格（本体価格）】を基本とします。
+    POPに「税抜（本体価格）」と「税込」の両方が記載されている場合は、税抜価格を主軸として正確に読み取ってください。
+    POPに税込価格のみ記載されている場合は、税抜価格 ＝ round(税込価格 / 1.1) で算出して記録してください。
     ${multiImageNotice}
     ${photoMappingHint}
     ${segmentsHint}
@@ -884,12 +889,12 @@ document.addEventListener("DOMContentLoaded", () => {
     - model_name: 車種名・モデル名
     - model_code: 型番/品番（POPに記載があれば）
     - model_year: 年式（例: 2024年, 2023年型落ち, 不明）
+    - price_tax_excluded: 税抜価格（本体価格・円・数値。最重要基準）
+    - master_price: マスター税抜価格（マスターに存在する場合のみ数値、ない場合はnull）
+    - price_diff: 税抜差額（売場税抜価格 − マスター税抜価格。ない場合はnull）
     - price_tax_included: 税込価格（円・数値）
-    - master_price: マスター価格（マスターに存在する場合のみ数値、ない場合はnull）
-    - price_diff: 差額（税込価格 − マスター価格。ない場合はnull）
     - is_master_match: マスターに存在したかどうかのブール値（true/false）
     - quantity: 展示台数（POP記載の台数、または売場に物理的に並んでいる台数）
-    - price_tax_excluded: 税抜価格（円・数値）
     - spec_notes: 仕様・セールPOPメモ（例: 16.0Ah、内装3段、特価POP等）
     - timestamp: 時間または写真番号（動画の場合は出現時間 01:23、写真の場合は「写真1」等）
 
@@ -913,16 +918,16 @@ document.addEventListener("DOMContentLoaded", () => {
               model_name: { type: "STRING" },
               model_code: { type: "STRING" },
               model_year: { type: "STRING" },
-              price_tax_included: { type: "INTEGER" },
+              price_tax_excluded: { type: "INTEGER" },
               master_price: { type: "INTEGER" },
               price_diff: { type: "INTEGER" },
+              price_tax_included: { type: "INTEGER" },
               is_master_match: { type: "BOOLEAN" },
               quantity: { type: "INTEGER" },
-              price_tax_excluded: { type: "INTEGER" },
               spec_notes: { type: "STRING" },
               timestamp: { type: "STRING" }
             },
-            required: ["category", "maker", "model_name", "price_tax_included", "price_tax_excluded", "quantity", "timestamp"]
+            required: ["category", "maker", "model_name", "price_tax_excluded", "price_tax_included", "quantity", "timestamp"]
           }
         }
       },
@@ -990,9 +995,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     bikes.forEach((bike) => {
       const qty = parseInt(bike.quantity) || 1;
-      const priceInc = parseInt(bike.price_tax_included) || 0;
+      const priceExc = parseInt(bike.price_tax_excluded) || (bike.price_tax_included ? Math.round(parseInt(bike.price_tax_included) / 1.1) : 0);
+      const priceInc = parseInt(bike.price_tax_included) || Math.round(priceExc * 1.1);
+      
       totalQty += qty;
-      totalPrice += priceInc * qty;
+      totalPrice += priceExc * qty; // 税抜価格で平均単価を集計
 
       if (bike.category && (bike.category.includes("電動") || bike.category.toLowerCase().includes("e-bike"))) {
         ebikeQty += qty;
@@ -1031,9 +1038,10 @@ document.addEventListener("DOMContentLoaded", () => {
         <td class="px-3 py-2 font-semibold text-indigo-950">${modelHtml}</td>
         <td class="px-3 py-2 font-mono text-slate-500 text-[11px]">${escapeHtml(bike.model_code || "-")}</td>
         <td class="px-3 py-2 whitespace-nowrap text-slate-600">${escapeHtml(bike.model_year || "不明")}</td>
-        <td class="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">¥${priceInc.toLocaleString()}</td>
+        <td class="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap bg-indigo-50/30">¥${priceExc.toLocaleString()}</td>
         <td class="px-3 py-2 text-right text-slate-500 whitespace-nowrap font-mono">${mPrice}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap">${diffHtml}</td>
+        <td class="px-3 py-2 text-right text-slate-400 whitespace-nowrap text-[11px]">¥${priceInc.toLocaleString()}</td>
         <td class="px-3 py-2 text-center font-bold text-indigo-600">${qty}</td>
         <td class="px-3 py-2 text-slate-500 text-[11px]">${escapeHtml(bike.spec_notes || "")}</td>
         <td class="px-3 py-2 text-center font-mono text-xs text-indigo-700 bg-indigo-50/50 rounded font-semibold whitespace-nowrap">${escapeHtml(bike.timestamp || "確認済")}</td>
@@ -1069,17 +1077,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const excelRows = currentResults.map(b => {
       const isMatch = b.is_master_match === true;
       const hasMPrice = isMatch && b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      const priceExc = parseInt(b.price_tax_excluded) || (b.price_tax_included ? Math.round(parseInt(b.price_tax_included) / 1.1) : 0);
+      const priceInc = parseInt(b.price_tax_included) || Math.round(priceExc * 1.1);
+
       return {
         "カテゴリ": b.category || "",
         "メーカー": b.maker || "",
         "車種名・モデル名": b.model_name || "",
         "型番/品番": b.model_code || "",
         "年式": b.model_year || "不明",
-        "税込価格(円)": parseInt(b.price_tax_included) || 0,
-        "マスター価格(円)": hasMPrice ? parseInt(b.master_price) : "-",
-        "差額(円)": hasMPrice && b.price_diff !== null && b.price_diff !== undefined ? parseInt(b.price_diff) : "-",
+        "税抜価格(円)": priceExc,
+        "マスター税抜(円)": hasMPrice ? parseInt(b.master_price) : "-",
+        "税抜差額(円)": hasMPrice && b.price_diff !== null && b.price_diff !== undefined ? parseInt(b.price_diff) : "-",
+        "税込価格(円)": priceInc,
         "台数": parseInt(b.quantity) || 1,
-        "税抜価格(円)": parseInt(b.price_tax_excluded) || 0,
         "特記事項・POP": b.spec_notes || "",
         "確認時間": b.timestamp || ""
       };
@@ -1089,7 +1100,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ws["!cols"] = [
       { wch: 16 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 10 },
-      { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 8 },  { wch: 15 },
+      { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 8 },
       { wch: 26 }, { wch: 20 }
     ];
 
@@ -1110,21 +1121,24 @@ document.addEventListener("DOMContentLoaded", () => {
     const storeName = inputStoreName.value.trim() || "競合店舗";
     const surveyDate = inputSurveyDate.value || today;
 
-    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税込価格", "マスター価格", "差額", "台数", "税抜価格", "特記事項・POP", "確認時間"];
+    const headers = ["カテゴリ", "メーカー", "車種名・モデル名", "型番/品番", "年式", "税抜価格", "マスター税抜", "税抜差額", "税込価格", "台数", "特記事項・POP", "確認時間"];
     const rows = currentResults.map(b => {
       const isMatch = b.is_master_match === true;
       const hasMPrice = isMatch && b.master_price !== null && b.master_price !== undefined && b.master_price > 0;
+      const priceExc = parseInt(b.price_tax_excluded) || (b.price_tax_included ? Math.round(parseInt(b.price_tax_included) / 1.1) : 0);
+      const priceInc = parseInt(b.price_tax_included) || Math.round(priceExc * 1.1);
+
       return [
         `"${(b.category || "").replace(/"/g, '""')}"`,
         `"${(b.maker || "").replace(/"/g, '""')}"`,
         `"${(b.model_name || "").replace(/"/g, '""')}"`,
         `"${(b.model_code || "").replace(/"/g, '""')}"`,
         `"${(b.model_year || "").replace(/"/g, '""')}"`,
-        parseInt(b.price_tax_included) || 0,
+        priceExc,
         hasMPrice ? parseInt(b.master_price) : "-",
         hasMPrice && b.price_diff !== null && b.price_diff !== undefined ? parseInt(b.price_diff) : "-",
+        priceInc,
         parseInt(b.quantity) || 1,
-        parseInt(b.price_tax_excluded) || 0,
         `"${(b.spec_notes || "").replace(/"/g, '""')}"`,
         `"${(b.timestamp || "").replace(/"/g, '""')}"`
       ];
