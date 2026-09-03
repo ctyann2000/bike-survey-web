@@ -1,6 +1,6 @@
 """
 自転車競合店調査 AI - Python 自律マルチエージェントスクリプト
-(2段階自律パイプライン: Liteトリアージ ➔ 3.8/3.7/3.6 Flash精密読取)
+(複数動画一括受付 ＆ 2段階自律パイプライン ＆ 自動マージ対応版)
 """
 import asyncio
 import os
@@ -44,44 +44,16 @@ class BikeSurveyAgentSystem:
             raise ValueError("GEMINI_API_KEY が設定されていません。環境変数または引数で指定してください。")
         self.client = genai.Client(api_key=self.api_key)
 
-    def analyze_video_to_excel(
+    def analyze_videos_to_excel(
         self,
-        video_path: str,
+        video_paths: List[str],
         output_excel_path: str,
         store_name: str = "競合店舗",
         master_excel_path: Optional[str] = None
     ):
-        print(f"🎬 [1/5] 動画をアップロード中: {video_path}")
-        video_file = self.client.files.upload(file=video_path)
-        
-        while video_file.state.name == "PROCESSING":
-            print("⏳ クラウド処理完了を待機中...")
-            time.sleep(5)
-            video_file = self.client.files.get(name=video_file.name)
-            
-        if video_file.state.name == "FAILED":
-            raise RuntimeError("動画の処理に失敗しました。")
+        total_videos = len(video_paths)
+        print(f"🎬 合計 {total_videos} 本の動画を順次解析します。")
 
-        # --- Stage 1: Flash-Lite によるトリアージ（有効区間の事前判別）---
-        print("⚡ [2/5] 【Stage 1】Gemini 3.5 Flash-Lite (1日500回枠) による有効区間のトリアージを実行中...")
-        lite_prompt = """
-        この動画から、自転車や値札・POPが明確に映っている有効な時間区間（例: "00:15 - 00:45", "01:20 - 02:05"...）を特定し、
-        移動時間やブレなどの無効区間を除外したサマリーを作成してください。
-        """
-        try:
-            lite_res = self.client.models.generate_content(
-                model="gemini-3.5-flash-lite",
-                contents=[lite_prompt, video_file],
-                config={"response_mime_type": "application/json", "response_schema": LiteSegmentResult}
-            )
-            segment_data = LiteSegmentResult.model_validate_json(lite_res.text)
-            segments_hint = f"有効区間: {', '.join(segment_data.valid_segments)}"
-            print(f"✓ 有効区間を特定: {segments_hint}")
-        except Exception as e:
-            print(f"Liteステージはスキップし全編精密読取へ進みます: {e}")
-            segments_hint = "全編有効"
-
-        # --- Stage 2: マスター情報の準備 ---
         master_context = ""
         if master_excel_path and os.path.exists(master_excel_path):
             print(f"📖 店舗マスターExcelを読み込み中: {master_excel_path}")
@@ -97,43 +69,83 @@ class BikeSurveyAgentSystem:
             3. マスターにない商品（型落ち処分、未登録品等）: is_master_match=false, master_price=null, price_diff=null, spec_notesに「【マスター外】」と付記し、POPの文字を正確に抽出。
             """
 
-        # --- Stage 3: 高精度 Flash モデル (3.8 ➔ 3.7 ➔ 3.6 フォールバック) による精密読取 ---
-        print("🔍 [3/5] 【Stage 2】高精度Flashモデル (Gemini 3.8/3.7/3.6) による精密OCR・差額照合を実行中...")
-        precision_prompt = f"""
-        あなたは自転車小売業の競合店舗調査の専門エキスパートです。
-        店舗名: {store_name}
-        【Liteによる有効区間情報】: {segments_hint}。この区間に特に注視してください。
-        動画に映っているすべての自転車のPOP・値札を時系列で認識し、
-        重複を排除して全商品の詳細情報を漏れなく抽出してください。
-        {master_context}
+        combined_bikes: List[BikeRecord] = []
 
-        【ルール】
-        1. 同一車両が連続して映っている場合は1台（または並んでいる台数）としてまとめてください。
-        2. 各車両の動画内タイムスタンプ（例: 01:23）を必ず記録してください。
-        """
+        for idx, v_path in enumerate(video_paths):
+            v_label = f"[動画{idx + 1}] " if total_videos > 1 else ""
+            print(f"\n==========================================")
+            print(f"▶ 動画 {idx + 1}/{total_videos} の処理開始: {v_path}")
+            print(f"==========================================")
 
-        survey_res = None
-        for model in ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]:
+            print("クラウドへアップロード中...")
+            video_file = self.client.files.upload(file=v_path)
+            while video_file.state.name == "PROCESSING":
+                print("⏳ クラウド処理完了を待機中...")
+                time.sleep(5)
+                video_file = self.client.files.get(name=video_file.name)
+                
+            if video_file.state.name == "FAILED":
+                print(f"⚠️ 動画 {v_path} の処理に失敗しました。スキップします。")
+                continue
+
+            # Stage 1: Flash-Lite トリアージ
+            print("⚡ 【Stage 1】Flash-Lite による有効区間特定中...")
+            lite_prompt = "この動画から、自転車や値札・POPが明確に映っている有効な時間区間（例: 00:15 - 00:45）を特定してください。"
             try:
-                print(f"モデル {model} を呼び出し中...")
-                res = self.client.models.generate_content(
-                    model=model,
-                    contents=[precision_prompt, video_file],
-                    config={"response_mime_type": "application/json", "response_schema": SurveyResult}
+                lite_res = self.client.models.generate_content(
+                    model="gemini-3.5-flash-lite",
+                    contents=[lite_prompt, video_file],
+                    config={"response_mime_type": "application/json", "response_schema": LiteSegmentResult}
                 )
-                survey_res = SurveyResult.model_validate_json(res.text)
-                print(f"✓ モデル {model} で抽出成功！")
-                break
-            except Exception as ex:
-                print(f"モデル {model} 失敗 ({ex})。次のモデルへフォールバックします...")
+                seg = LiteSegmentResult.model_validate_json(lite_res.text)
+                seg_hint = f"有効区間: {', '.join(seg.valid_segments)}"
+            except Exception:
+                seg_hint = "全編有効"
 
-        if not survey_res:
-            raise RuntimeError("すべてのFlashモデルでの解析に失敗しました。")
+            # Stage 2: Flash 精密読取
+            print("🔍 【Stage 2】Flash高精度モデルによる精密解析中...")
+            prec_prompt = f"""
+            店舗名: {store_name}
+            【有効区間情報】: {seg_hint}
+            動画内の自転車の値札・プライスカードPOPを読み取り、全商品を抽出してください。
+            {master_context}
+            """
 
-        # --- Stage 4: Excel整形・出力 ---
-        print("📊 [4/5] データを整形・Excelファイルへ書き出し中...")
+            survey_res = None
+            for model in ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]:
+                try:
+                    res = self.client.models.generate_content(
+                        model=model,
+                        contents=[prec_prompt, video_file],
+                        config={"response_mime_type": "application/json", "response_schema": SurveyResult}
+                    )
+                    survey_res = SurveyResult.model_validate_json(res.text)
+                    print(f"✓ モデル {model} で抽出成功！ ({len(survey_res.bikes)} SKU)")
+                    break
+                except Exception as ex:
+                    print(f"モデル {model} リトライ: {ex}")
+
+            if survey_res and survey_res.bikes:
+                for b in survey_res.bikes:
+                    b.timestamp = f"{v_label}{b.timestamp}"
+                    combined_bikes.append(b)
+
+        # 重複統合
+        print("\n📊 全動画のデータを統合・Excelへ書き出し中...")
+        bike_map = {}
+        for b in combined_bikes:
+            key = f"{(b.model_name or '').strip()}|{(b.model_code or '').strip()}|{b.price_tax_included}"
+            if key in bike_map:
+                existing = bike_map[key]
+                existing.quantity += b.quantity
+                if b.timestamp not in existing.timestamp:
+                    existing.timestamp += f", {b.timestamp}"
+            else:
+                bike_map[key] = b
+
+        final_bikes = list(bike_map.values())
         rows = []
-        for b in survey_res.bikes:
+        for b in final_bikes:
             is_match = b.is_master_match is True
             rows.append({
                 "カテゴリ": b.category or "",
@@ -151,27 +163,23 @@ class BikeSurveyAgentSystem:
             })
 
         df = pd.DataFrame(rows)
-
         with pd.ExcelWriter(output_excel_path, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="調査結果")
-            worksheet = writer.sheets["調査結果"]
-            for col in worksheet.columns:
+            ws = writer.sheets["調査結果"]
+            for col in ws.columns:
                 max_len = max(len(str(cell.value or '')) for cell in col)
                 col_letter = col[0].column_letter
-                worksheet.column_dimensions[col_letter].width = max(max_len + 3, 11)
+                ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
-        print(f"🎉 [5/5] 完了！ Excelを出力しました: {output_excel_path}")
-        print(f"合計展示台数: {df['台数'].sum()} 台 (検出SKU数: {len(df)})")
+        print(f"🎉 完了！ 統合Excelを出力しました: {output_excel_path}")
+        print(f"合計展示台数: {df['台数'].sum()} 台 (統合後SKU数: {len(df)})")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("使用法: python survey_agent.py <動画ファイルパス> [出力Excelパス] [店舗名] [マスターExcelパス]")
+        print("使用法: python survey_agent.py <動画1> [動画2] ... [出力Excelパス]")
         sys.exit(1)
     
-    v_path = sys.argv[1]
-    out_path = sys.argv[2] if len(sys.argv) > 2 else "競合調査結果.xlsx"
-    s_name = sys.argv[3] if len(sys.argv) > 3 else "競合店舗"
-    m_path = sys.argv[4] if len(sys.argv) > 4 else None
-    
     agent = BikeSurveyAgentSystem()
-    agent.analyze_video_to_excel(v_path, out_path, s_name, m_path)
+    v_paths = [a for a in sys.argv[1:] if a.endswith(('.mp4', '.mov', '.webm', '.avi'))]
+    out_p = "競合調査統合結果.xlsx"
+    agent.analyze_videos_to_excel(v_paths, out_p)

@@ -93,26 +93,35 @@
       <!-- 右側：動画 ＆ マスターExcel アップロード -->
       <div class="lg:col-span-2 space-y-4">
 
-        <!-- ② 調査動画アップロード枠 -->
+        <!-- ② 調査動画アップロード枠（複数ファイル対応） -->
         <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2 mb-3">
-            <i data-lucide="video" class="w-5 h-5 text-indigo-600"></i>
-            <span>② 調査動画（4K / フルHD）の選択 <span class="text-xs text-rose-500 font-bold">必須</span></span>
-          </h2>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <i data-lucide="video" class="w-5 h-5 text-indigo-600"></i>
+              <span>② 調査動画の選択 <span class="text-xs text-rose-500 font-bold">必須</span></span>
+            </h2>
+            <span class="text-[11px] font-medium px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md">複数動画・分割撮影に対応</span>
+          </div>
 
           <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
-            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm" class="hidden">
+            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm" multiple class="hidden">
             <div class="p-2.5 bg-indigo-100 text-indigo-600 rounded-full">
               <i data-lucide="upload-cloud" class="w-6 h-6"></i>
             </div>
             <div>
               <p class="text-sm font-semibold text-slate-700">ここに動画ファイルをドラッグ＆ドロップ</p>
-              <p class="text-xs text-slate-400 mt-0.5">MP4 / MOV / WEBM（最大2GB対応）</p>
+              <p class="text-xs text-slate-400 mt-0.5">複数ファイル同時ドロップ可（MP4 / MOV / WEBM）</p>
             </div>
-            <div id="selected-file-info" class="hidden mt-1 p-2 bg-white border border-slate-200 rounded-xl flex items-center space-x-2 text-xs text-slate-700">
-              <i data-lucide="file-video" class="w-4 h-4 text-indigo-600"></i>
-              <span id="file-name" class="font-medium truncate max-w-xs"></span>
-              <span id="file-size" class="text-slate-400"></span>
+          </div>
+
+          <!-- 選択された動画ファイルリスト -->
+          <div id="selected-files-container" class="hidden mt-3 space-y-2">
+            <div class="flex items-center justify-between text-xs text-slate-500 font-medium px-1">
+              <span id="selected-files-count">選択された動画 (0本)</span>
+              <button id="btn-clear-all-videos" class="text-slate-400 hover:text-rose-600 transition text-[11px]">すべてクリア</button>
+            </div>
+            <div id="selected-files-list" class="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+              <!-- 動的にファイル行を追加 -->
             </div>
           </div>
         </div>
