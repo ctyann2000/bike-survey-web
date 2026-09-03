@@ -103,20 +103,20 @@
             <span class="text-[11px] font-medium px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md">動画・写真どちらもOK</span>
           </div>
 
-          <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
-            <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp" multiple class="hidden">
-            <div class="p-2.5 bg-indigo-100 text-indigo-600 rounded-full">
+          <div id="drop-zone" class="relative border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 overflow-hidden">
+            <input type="file" id="file-input" accept="video/*,image/*,.mp4,.mov,.webm,.avi,.mkv,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+            <div class="p-2.5 bg-indigo-100 text-indigo-600 rounded-full pointer-events-none">
               <i data-lucide="upload-cloud" class="w-6 h-6"></i>
             </div>
-            <div>
+            <div class="pointer-events-none">
               <p class="text-sm font-semibold text-slate-700">ここに動画または写真をドラッグ＆ドロップ</p>
-              <p class="text-xs text-indigo-600 font-medium mt-1 hover:underline">またはここをクリックしてファイルを選択</p>
+              <p class="text-xs text-indigo-600 font-medium mt-1">またはここをクリックしてファイルを選択</p>
               <p class="text-[11px] text-slate-400 mt-0.5">動画（MP4/MOV/WEBM）または 写真（JPG/PNG/WEBP/HEIC）複数可</p>
             </div>
           </div>
 
           <div class="mt-2 flex items-center justify-between">
-            <button type="button" id="btn-load-sample" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1 underline">
+            <button type="button" id="btn-load-sample" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center space-x-1 underline cursor-pointer">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
               <span>手元に写真・動画がない場合は「サンプル写真で即テスト」</span>
             </button>
@@ -144,23 +144,23 @@
             <span class="text-[11px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">精度UP ＆ 差額算出</span>
           </div>
 
-          <div id="master-drop-zone" class="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
-            <input type="file" id="master-file-input" accept=".xlsx,.xls,.csv" class="hidden">
-            <div class="p-2 bg-emerald-100 text-emerald-600 rounded-full">
+          <div id="master-drop-zone" class="relative border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 overflow-hidden">
+            <input type="file" id="master-file-input" accept=".xlsx,.xls,.csv" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+            <div class="p-2 bg-emerald-100 text-emerald-600 rounded-full pointer-events-none">
               <i data-lucide="file-plus-2" class="w-5 h-5"></i>
             </div>
-            <div>
-              <p class="text-xs font-semibold text-slate-700">店舗マスターExcel（.xlsx / .csv）をドロップ（任意）</p>
+            <div class="pointer-events-none">
+              <p class="text-xs font-semibold text-slate-700">店舗マスターExcel（.xlsx / .csv）をドロップまたはクリック（任意）</p>
               <p class="text-[11px] text-slate-400 mt-0.5">マスター価格がある場合、売場価格との「差額」が自動出力されます</p>
             </div>
-            <div id="selected-master-info" class="hidden mt-1 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between w-full max-w-sm text-xs text-emerald-900">
-              <div class="flex items-center space-x-2 truncate">
-                <i data-lucide="check" class="w-4 h-4 text-emerald-600 flex-shrink-0"></i>
-                <span id="master-file-name" class="font-medium truncate"></span>
-                <span id="master-sku-badge" class="px-2 py-0.5 bg-emerald-200/70 rounded text-[10px] font-bold">0 SKU</span>
-              </div>
-              <button id="btn-clear-master" class="text-emerald-700 hover:text-emerald-950 p-1 font-bold ml-2">✕</button>
+          </div>
+          <div id="selected-master-info" class="hidden mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between w-full text-xs text-emerald-900">
+            <div class="flex items-center space-x-2 truncate">
+              <i data-lucide="check" class="w-4 h-4 text-emerald-600 flex-shrink-0"></i>
+              <span id="master-file-name" class="font-medium truncate"></span>
+              <span id="master-sku-badge" class="px-2 py-0.5 bg-emerald-200/70 rounded text-[10px] font-bold">0 SKU</span>
             </div>
+            <button id="btn-clear-master" class="text-emerald-700 hover:text-emerald-950 p-1 font-bold ml-2">✕</button>
           </div>
         </div>
 

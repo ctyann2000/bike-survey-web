@@ -13,12 +13,10 @@ body {
   transform: scale(1.01);
 }
 
-#drop-zone * {
-  pointer-events: none;
-}
-
-#master-drop-zone * {
-  pointer-events: none;
+#master-drop-zone.dragover {
+  border-color: #10b981 !important;
+  background-color: #ecfdf5 !important;
+  transform: scale(1.01);
 }
 
 /* プログレスバーのアニメーション */
