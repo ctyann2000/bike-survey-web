@@ -64,11 +64,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const today = new Date().toISOString().split("T")[0];
   inputSurveyDate.value = today;
 
-  const savedKey = localStorage.getItem("gemini_api_key");
-  if (savedKey) {
-    inputApiKey.value = savedKey;
+  // --- 初期化: APIキーの自動読み込み（config.js 優先、なければ localStorage） ---
+  let activeApiKey = "";
+  if (typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY.trim() !== "") {
+    activeApiKey = CONFIG.GEMINI_API_KEY.trim();
+    inputApiKey.value = activeApiKey;
     apiKeyBanner.classList.add("bg-emerald-50", "border-emerald-200");
     apiKeyBanner.classList.remove("bg-amber-50", "border-amber-200");
+    const bannerTitle = apiKeyBanner.querySelector("h2");
+    if (bannerTitle) bannerTitle.textContent = "✓ APIキーを設定ファイル（config.js）から自動読込しました";
+  } else {
+    const savedKey = localStorage.getItem("gemini_api_key");
+    if (savedKey) {
+      activeApiKey = savedKey;
+      inputApiKey.value = savedKey;
+      apiKeyBanner.classList.add("bg-emerald-50", "border-emerald-200");
+      apiKeyBanner.classList.remove("bg-amber-50", "border-amber-200");
+    }
   }
 
   btnSaveKey.addEventListener("click", () => {
@@ -160,8 +172,14 @@ document.addEventListener("DOMContentLoaded", () => {
     selectedMasterInfo.classList.add("hidden");
   });
 
+  function getEffectiveApiKey() {
+    return inputApiKey.value.trim() || 
+           (typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY && CONFIG.GEMINI_API_KEY.trim()) || 
+           localStorage.getItem("gemini_api_key") || "";
+  }
+
   function updateStartButtonState() {
-    const hasKey = !!inputApiKey.value.trim() || !!localStorage.getItem("gemini_api_key");
+    const hasKey = !!getEffectiveApiKey();
     const hasVideo = !!selectedVideoFile;
     btnStartAnalysis.disabled = !(hasKey && hasVideo);
   }
@@ -180,7 +198,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 3. 解析実行パイプライン
   btnStartAnalysis.addEventListener("click", async () => {
-    const apiKey = inputApiKey.value.trim() || localStorage.getItem("gemini_api_key");
+    const apiKey = getEffectiveApiKey();
     if (!apiKey) { alert("APIキーを入力してください。"); return; }
     if (!selectedVideoFile) { alert("動画ファイルを選択してください。"); return; }
 
