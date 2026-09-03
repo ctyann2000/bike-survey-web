@@ -20,6 +20,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // メディア（動画・写真）アップロード要素
   const dropZone = document.getElementById("drop-zone");
+  const dropZoneEmpty = document.getElementById("drop-zone-empty");
+  const dropZoneFilled = document.getElementById("drop-zone-filled");
+  const dropZoneFilledTitle = document.getElementById("drop-zone-filled-title");
+  const dropZoneFilledSub = document.getElementById("drop-zone-filled-sub");
   const fileInput = document.getElementById("file-input");
   const selectedFilesContainer = document.getElementById("selected-files-container");
   const selectedFilesCount = document.getElementById("selected-files-count");
@@ -27,6 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearAllVideos = document.getElementById("btn-clear-all-videos");
   const btnLoadSample = document.getElementById("btn-load-sample");
   const btnStartAnalysis = document.getElementById("btn-start-analysis");
+  const btnStartStatus = document.getElementById("btn-start-status");
 
   // 店舗マスターExcelアップロード要素
   const masterDropZone = document.getElementById("master-drop-zone");
@@ -109,6 +114,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     updateStartButtonState();
   });
+
+  // 初期状態のボタンステータスを反映
+  updateStartButtonState();
 
   // ブラウザ全体で意図しないファイル開き・ダウンロードを抑止
   window.addEventListener("dragover", (e) => e.preventDefault());
@@ -213,13 +221,32 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderMediaFilesList() {
     if (selectedMediaFiles.length === 0) {
       selectedFilesContainer.classList.add("hidden");
+      if (dropZoneEmpty) dropZoneEmpty.classList.remove("hidden");
+      if (dropZoneFilled) dropZoneFilled.classList.add("hidden");
+      dropZone.classList.remove("border-emerald-500", "bg-emerald-50/70");
+      dropZone.classList.add("border-slate-300", "bg-slate-50");
+      updateStartButtonState();
       return;
     }
 
+    // 添付完了の視覚的フィードバック（緑色ハイライト ＆ 完了アイコン）
     selectedFilesContainer.classList.remove("hidden");
+    if (dropZoneEmpty) dropZoneEmpty.classList.add("hidden");
+    if (dropZoneFilled) dropZoneFilled.classList.remove("hidden");
+    dropZone.classList.remove("border-slate-300", "bg-slate-50");
+    dropZone.classList.add("border-emerald-500", "bg-emerald-50/70");
+
     const totalBytes = selectedMediaFiles.reduce((acc, f) => acc + f.size, 0);
     const totalMb = (totalBytes / (1024 * 1024)).toFixed(1);
-    selectedFilesCount.textContent = `選択されたファイル: ${selectedMediaFiles.length} 件 (合計 ${totalMb} MB)`;
+    
+    if (dropZoneFilledTitle) {
+      dropZoneFilledTitle.textContent = `✅ ${selectedMediaFiles.length} 件のファイルを添付しました！`;
+    }
+    if (dropZoneFilledSub) {
+      const names = selectedMediaFiles.map(f => f.name).slice(0, 2).join(", ");
+      dropZoneFilledSub.textContent = `合計容量: ${totalMb} MB (${names}${selectedMediaFiles.length > 2 ? ' 他' : ''})`;
+    }
+    selectedFilesCount.textContent = `添付済みファイル: ${selectedMediaFiles.length} 件 (合計 ${totalMb} MB)`;
 
     selectedFilesList.innerHTML = "";
     selectedMediaFiles.forEach((file, idx) => {
@@ -323,6 +350,33 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateStartButtonState() {
     const hasKey = !!getEffectiveApiKey();
     const hasFiles = selectedMediaFiles.length > 0;
+    
+    if (btnStartStatus) {
+      if (!hasKey) {
+        btnStartStatus.innerHTML = `
+          <span class="text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center space-x-1.5 font-bold">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i>
+            <span>APIキーが未設定です（右上の⚙️アイコンから設定）</span>
+          </span>
+        `;
+      } else if (!hasFiles) {
+        btnStartStatus.innerHTML = `
+          <span class="text-slate-600 flex items-center space-x-1.5">
+            <i data-lucide="info" class="w-4 h-4 text-indigo-600"></i>
+            <span>調査ファイル（動画または写真）を選択してください</span>
+          </span>
+        `;
+      } else {
+        btnStartStatus.innerHTML = `
+          <span class="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center space-x-1.5 font-bold">
+            <i data-lucide="check-circle" class="w-4 h-4 text-emerald-600"></i>
+            <span>✅ 準備完了！クリックして解析を開始できます</span>
+          </span>
+        `;
+      }
+      if (window.lucide) window.lucide.createIcons();
+    }
+
     btnStartAnalysis.disabled = !(hasKey && hasFiles);
   }
 
