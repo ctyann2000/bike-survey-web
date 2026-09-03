@@ -103,8 +103,8 @@
             <span class="text-[11px] font-medium px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md">動画・写真どちらもOK</span>
           </div>
 
-          <div id="drop-zone" class="relative border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 overflow-hidden">
-            <input type="file" id="file-input" accept="video/*,image/*,.mp4,.mov,.webm,.avi,.mkv,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+          <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/50 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
+            <input type="file" id="file-input" accept="video/*,image/*,.mp4,.mov,.webm,.avi,.mkv,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple class="hidden">
             
             <!-- 未選択時の表示 -->
             <div id="drop-zone-empty" class="flex flex-col items-center justify-center space-y-2 pointer-events-none">
@@ -160,8 +160,8 @@
             <span class="text-[11px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">精度UP ＆ 差額算出</span>
           </div>
 
-          <div id="master-drop-zone" class="relative border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2 overflow-hidden">
-            <input type="file" id="master-file-input" accept=".xlsx,.xls,.csv" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+          <div id="master-drop-zone" class="border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
+            <input type="file" id="master-file-input" accept=".xlsx,.xls,.csv" class="hidden">
             <div class="p-2 bg-emerald-100 text-emerald-600 rounded-full pointer-events-none">
               <i data-lucide="file-plus-2" class="w-5 h-5"></i>
             </div>

@@ -125,15 +125,47 @@ document.addEventListener("DOMContentLoaded", () => {
   // ========================================================
   // 1. メディアファイル（動画・写真）の選択 ＆ 管理
   // ========================================================
-  // ドラッグ時の枠線ハイライト
-  fileInput.addEventListener("dragenter", () => dropZone.classList.add("dragover"));
-  fileInput.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
-  fileInput.addEventListener("drop", () => dropZone.classList.remove("dragover"));
+  // ドラッグ進入・移動時（dragoverでpreventDefaultしないとdropが絶対に発火しない仕様）
+  ["dragenter", "dragover"].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+      dropZone.classList.add("dragover");
+    });
+  });
+
+  // ドラッグ離脱時
+  ["dragleave", "dragend"].forEach(name => {
+    dropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove("dragover");
+    });
+  });
+
+  // ドロップ時（e.dataTransfer.files から確実にファイルを取得）
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove("dragover");
+
+    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (files && files.length > 0) {
+      console.log("ドロップ成功:", files);
+      addMediaFiles(files);
+    }
+  });
+
+  // クリック選択（枠をクリックしたときにファイルダイアログを開く）
+  dropZone.addEventListener("click", () => {
+    fileInput.value = "";
+    fileInput.click();
+  });
 
   fileInput.addEventListener("change", (e) => {
-    dropZone.classList.remove("dragover");
     if (e.target.files && e.target.files.length > 0) {
-      console.log("ファイル選択・ドロップ検知:", e.target.files);
+      console.log("ファイル選択成功:", e.target.files);
       addMediaFiles(e.target.files);
     }
   });
@@ -298,12 +330,42 @@ document.addEventListener("DOMContentLoaded", () => {
   // ========================================================
   // 2. 店舗マスターExcelドラッグ＆ドロップ
   // ========================================================
-  masterFileInput.addEventListener("dragenter", () => masterDropZone.classList.add("border-emerald-500", "bg-emerald-50/50"));
-  masterFileInput.addEventListener("dragleave", () => masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50"));
-  masterFileInput.addEventListener("drop", () => masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50"));
-  masterFileInput.addEventListener("change", (e) => {
+  ["dragenter", "dragover"].forEach(name => {
+    masterDropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+      masterDropZone.classList.add("border-emerald-500", "bg-emerald-50/50");
+    });
+  });
+
+  ["dragleave", "dragend"].forEach(name => {
+    masterDropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50");
+    });
+  });
+
+  masterDropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     masterDropZone.classList.remove("border-emerald-500", "bg-emerald-50/50");
-    if (e.target.files && e.target.files.length > 0) handleMasterFileSelected(e.target.files[0]);
+    const files = e.dataTransfer ? e.dataTransfer.files : null;
+    if (files && files.length > 0) {
+      handleMasterFileSelected(files[0]);
+    }
+  });
+
+  masterDropZone.addEventListener("click", () => {
+    masterFileInput.value = "";
+    masterFileInput.click();
+  });
+
+  masterFileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleMasterFileSelected(e.target.files[0]);
+    }
   });
 
   async function handleMasterFileSelected(file) {
