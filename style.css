@@ -1,4 +1,4 @@
-﻿@charset UTF-8;
+@charset UTF-8;
 
 /* 日本語フォントと基本設定 */
 body {
@@ -8,9 +8,17 @@ body {
 
 /* ドラッグ＆ドロップ時のアクティブ状態 */
 #drop-zone.dragover {
-  border-color: #4f46e5;
-  background-color: #eef2ff;
+  border-color: #4f46e5 !important;
+  background-color: #eef2ff !important;
   transform: scale(1.01);
+}
+
+#drop-zone * {
+  pointer-events: none;
+}
+
+#master-drop-zone * {
+  pointer-events: none;
 }
 
 /* プログレスバーのアニメーション */

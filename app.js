@@ -110,34 +110,57 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStartButtonState();
   });
 
+  // ブラウザ全体で意図しないファイル開き・ダウンロードを抑止
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+
   // ========================================================
   // 1. メディアファイル（動画・写真）の選択 ＆ 管理
   // ========================================================
-  dropZone.addEventListener("click", () => fileInput.click());
-  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
-  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("click", () => {
+    fileInput.value = "";
+    fileInput.click();
+  });
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add("dragover");
+  });
+  dropZone.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove("dragover");
+  });
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     dropZone.classList.remove("dragover");
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      console.log("ドロップ検知:", e.dataTransfer.files);
       addMediaFiles(e.dataTransfer.files);
     }
   });
 
   fileInput.addEventListener("change", (e) => {
     if (e.target.files && e.target.files.length > 0) {
+      console.log("ファイル選択検知:", e.target.files);
       addMediaFiles(e.target.files);
     }
   });
 
   function isMediaFile(file) {
-    return file.type.startsWith("video/") || 
-           file.type.startsWith("image/") || 
-           file.name.match(/\.(mp4|mov|webm|avi|mkv|jpg|jpeg|png|webp|svg)$/i);
+    if (!file) return false;
+    if (file.type && (file.type.startsWith("video/") || file.type.startsWith("image/"))) return true;
+    const ext = (file.name || "").split(".").pop().toLowerCase();
+    const validExts = ["mp4", "mov", "webm", "avi", "mkv", "m4v", "3gp", "wmv", "flv", "jpg", "jpeg", "png", "webp", "svg", "heic", "heif", "bmp", "gif"];
+    return validExts.includes(ext);
   }
 
   function isImageFile(file) {
-    return file.type.startsWith("image/") || file.name.match(/\.(jpg|jpeg|png|webp|svg)$/i);
+    if (!file) return false;
+    if (file.type && file.type.startsWith("image/")) return true;
+    const ext = (file.name || "").split(".").pop().toLowerCase();
+    return ["jpg", "jpeg", "png", "webp", "svg", "heic", "heif", "bmp", "gif"].includes(ext);
   }
 
   async function addMediaFiles(files) {
